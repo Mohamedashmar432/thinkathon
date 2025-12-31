@@ -674,7 +674,7 @@ REM_POWERSHELL_START
 $API_ENDPOINT = "${apiEndpoint}"
 $API_KEY = "{{API_KEY}}"
 $USER_EMAIL = "{{USER_EMAIL}}"
-$AGENT_VERSION = "1.0.0"
+$AGENT_VERSION = "2.0.0"
 
 # Enhanced PowerShell agent with production features
 # [Rest of PowerShell script would be here - truncated for brevity]
@@ -684,8 +684,6 @@ $AGENT_VERSION = "1.0.0"
       
       // Replace credentials for current user
       freshAgent = freshAgent
-        .replace(/mohamedashmar123@gmail\.com/g, user.email)
-        .replace(/42627a39b74bf1cb44d801d9dc861a85f4524495cb1dc63a93712aace6a7c5f7/g, user.apiKey)
         .replace(/\{\{USER_EMAIL\}\}/g, user.email)
         .replace(/\{\{API_KEY\}\}/g, user.apiKey)
         .replace(/\{\{API_ENDPOINT\}\}/g, apiEndpoint);

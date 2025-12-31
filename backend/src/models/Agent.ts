@@ -43,7 +43,10 @@ const AgentSchema = new Schema<IAgent>({
     enum: ['installed', 'connected', 'scanning', 'completed', 'active', 'inactive', 'uninstalled', 'error'],
     default: 'installed', // Agent starts as installed, becomes active after first successful scan
   },
-  version: String,
+  version: {
+    type: String,
+    default: "2.0.0", // Updated to latest version
+  },
   installedAt: {
     type: Date,
     default: Date.now,

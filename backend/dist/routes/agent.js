@@ -467,23 +467,42 @@ router.post('/download-installer', auth_1.authenticateToken, async (req, res) =>
         console.log(`Production mode: ${process.env.NODE_ENV === 'production'}`);
         console.log(`API_BASE_URL: ${process.env.API_BASE_URL}`);
         if (os === 'windows') {
-            // Windows agent (existing implementation)
-            const agentTemplatePath = path_1.default.join(__dirname, '../../templates/secure_habit_agent.ps1');
-            let agentTemplate = fs_1.default.readFileSync(agentTemplatePath, 'utf-8');
-            // Replace placeholders in PowerShell script
-            agentTemplate = agentTemplate
-                .replace(/{{USER_EMAIL}}/g, user.email)
-                .replace(/{{API_ENDPOINT}}/g, apiEndpoint)
-                .replace(/{{API_KEY}}/g, user.apiKey);
-            // Read batch installer template
-            const installerTemplatePath = path_1.default.join(__dirname, '../../templates/agent_installer.bat');
-            let installerTemplate = fs_1.default.readFileSync(installerTemplatePath, 'utf-8');
-            // Embed PowerShell script into batch file
-            const finalInstaller = installerTemplate.replace('{{POWERSHELL_AGENT_CONTENT}}', agentTemplate);
-            // Set headers for file download
-            res.setHeader('Content-Type', 'application/octet-stream');
-            res.setHeader('Content-Disposition', 'attachment; filename="SecureHabitAgent.bat"');
-            res.send(finalInstaller);
+            // CRITICAL FIX: Use fresh production agent instead of template
+            // Check if fresh production agent exists in templates directory
+            const freshAgentPath = path_1.default.join(__dirname, '../../templates/FRESH_SecureHabitAgent_PRODUCTION.bat');
+            if (fs_1.default.existsSync(freshAgentPath)) {
+                console.log(`🚀 Serving fresh production agent for user ${user.email}`);
+                // Read the fresh production agent
+                let freshAgent = fs_1.default.readFileSync(freshAgentPath, 'utf-8');
+                // Update credentials for current user (replace the demo user credentials)
+                freshAgent = freshAgent
+                    .replace(/mohamedashmar123@gmail\.com/g, user.email)
+                    .replace(/42627a39b74bf1cb44d801d9dc861a85f4524495cb1dc63a93712aace6a7c5f7/g, user.apiKey);
+                // Set headers for file download
+                res.setHeader('Content-Type', 'application/octet-stream');
+                res.setHeader('Content-Disposition', 'attachment; filename="SecureHabitAgent.bat"');
+                res.send(freshAgent);
+            }
+            else {
+                console.log(`⚠️ Fresh agent not found, generating from template for user ${user.email}`);
+                // Fallback to template generation
+                const agentTemplatePath = path_1.default.join(__dirname, '../../templates/secure_habit_agent.ps1');
+                let agentTemplate = fs_1.default.readFileSync(agentTemplatePath, 'utf-8');
+                // Replace placeholders in PowerShell script
+                agentTemplate = agentTemplate
+                    .replace(/{{USER_EMAIL}}/g, user.email)
+                    .replace(/{{API_ENDPOINT}}/g, apiEndpoint)
+                    .replace(/{{API_KEY}}/g, user.apiKey);
+                // Read batch installer template
+                const installerTemplatePath = path_1.default.join(__dirname, '../../templates/agent_installer.bat');
+                let installerTemplate = fs_1.default.readFileSync(installerTemplatePath, 'utf-8');
+                // Embed PowerShell script into batch file
+                const finalInstaller = installerTemplate.replace('{{POWERSHELL_AGENT_CONTENT}}', agentTemplate);
+                // Set headers for file download
+                res.setHeader('Content-Type', 'application/octet-stream');
+                res.setHeader('Content-Disposition', 'attachment; filename="SecureHabitAgent.bat"');
+                res.send(finalInstaller);
+            }
         }
         else if (os === 'linux') {
             // Linux agent

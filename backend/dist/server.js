@@ -79,13 +79,18 @@ if (!process.env.MONGODB_URI) {
     process.exit(1);
 }
 // Middleware
+// CORS configuration with production-first approach
+const isProduction = process.env.NODE_ENV === 'production';
+const frontendUrl = isProduction
+    ? 'https://securehabit.vercel.app'
+    : (process.env.FRONTEND_URL || 'http://localhost:5173');
 app.use((0, cors_1.default)({
     origin: [
         'http://localhost:5173',
         'http://127.0.0.1:5173',
         'https://securehabit.vercel.app',
         'https://securehabit.vercel.app/',
-        process.env.FRONTEND_URL || 'http://localhost:5173',
+        frontendUrl,
         // Add Vercel preview URLs
         /^https:\/\/.*\.vercel\.app$/
     ],
@@ -219,7 +224,7 @@ mongoose_1.default
         console.log(`🚀 Server running on port ${PORT}`);
         console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
         console.log(`🔑 JWT Secret: ${process.env.JWT_SECRET ? 'Configured' : 'Missing'}`);
-        console.log(`🎯 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
+        console.log(`🎯 Frontend URL: ${frontendUrl}`);
     });
     // Setup WebSocket server for agent communication
     (0, agent_1.setupWebSocketServer)(server);

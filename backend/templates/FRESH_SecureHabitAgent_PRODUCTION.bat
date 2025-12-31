@@ -107,7 +107,7 @@ REM_POWERSHELL_START
     Silent background agent that scans for vulnerabilities and sends data to Secure Habit platform
 .NOTES
     Requires Administrator privileges
-    Generated for: mohamedashmar123@gmail.com
+    Generated for: {{USER_EMAIL}}
 #>
 
 param(
@@ -127,11 +127,11 @@ if ($Silent) {
     [Console.Window]::ShowWindow($consolePtr, 0) # 0 = Hide
 }
 
-# Configuration
-$API_ENDPOINT = "https://secure-habit-backend.onrender.com/api/scan/submit"
-$API_KEY = "42627a39b74bf1cb44d801d9dc861a85f4524495cb1dc63a93712aace6a7c5f7"
-$USER_EMAIL = "mohamedashmar123@gmail.com"
-$AGENT_VERSION = "1.0.0"
+# Configuration - These will be replaced with actual user credentials at download time
+$API_ENDPOINT = "{{API_ENDPOINT}}"
+$API_KEY = "{{API_KEY}}"
+$USER_EMAIL = "{{USER_EMAIL}}"
+$AGENT_VERSION = "2.0.0"
 
 # Logging
 $LOG_DIR = "$env:TEMP\SecureHabit"

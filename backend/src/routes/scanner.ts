@@ -30,11 +30,14 @@ router.post('/generate', authenticateToken, async (req: AuthRequest, res: Respon
     let template = fs.readFileSync(templatePath, 'utf-8');
 
     // Replace placeholders
-    const apiEndpoint = `${process.env.API_BASE_URL}/api/scan/submit`;
+    const apiEndpoint = process.env.NODE_ENV === 'production' 
+      ? 'https://secure-habit-backend.onrender.com/api/scan/submit'
+      : `${process.env.API_BASE_URL || 'http://localhost:5000'}/api/scan/submit`;
+    
     template = template
-      .replace(/{{USER_EMAIL}}/g, user.email)
-      .replace(/{{API_ENDPOINT}}/g, apiEndpoint)
-      .replace(/{{API_KEY}}/g, user.apiKey);
+      .replace(/\{\{USER_EMAIL\}\}/g, user.email)
+      .replace(/\{\{API_ENDPOINT\}\}/g, apiEndpoint)
+      .replace(/\{\{API_KEY\}\}/g, user.apiKey);
 
     // Set headers for file download
     res.setHeader('Content-Type', 'application/octet-stream');
@@ -70,7 +73,9 @@ router.get('/credentials', authenticateToken, async (req: AuthRequest, res: Resp
     res.json({
       success: true,
       apiKey: user.apiKey,
-      apiEndpoint: `${process.env.API_BASE_URL}/api/scan/submit`,
+      apiEndpoint: process.env.NODE_ENV === 'production' 
+        ? 'https://secure-habit-backend.onrender.com/api/scan/submit'
+        : `${process.env.API_BASE_URL || 'http://localhost:5000'}/api/scan/submit`,
       userEmail: user.email,
     });
   } catch (error: any) {
