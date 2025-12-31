@@ -47,16 +47,25 @@ test_*.js
 validate_*.js
 check_*.js
 create_*.js
+migrate_*.js
+monitor_*.js
+get_*.js
 *_test.js
 *_validation.js
+*_comprehensive.js
 systemscan.ps1
 validate_*.ps1
 test_*.ps1
 fix-line-endings.bat
+curl-format.txt
 
 # Documentation files (except README.md)
 *.md
 !README.md
+
+# Demo and development scripts
+*demo*.js
+*ashmar*.js
 
 # Temporary files
 temp/

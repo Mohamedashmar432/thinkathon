@@ -1,5 +1,6 @@
 import express, { Response } from 'express';
 import Scan from '../models/Scan';
+import Agent from '../models/Agent';
 import { authenticateToken, authenticateApiKey, AuthRequest } from '../middleware/auth';
 import { analyzeVulnerabilities } from '../utils/vulnerabilityAnalyzer';
 import { calculateUserSecureScore, calculateEndpointExposureScore } from '../utils/scoreCalculator';
@@ -12,6 +13,16 @@ const router = express.Router();
 // Submit scan (from PowerShell script)
 router.post('/submit', authenticateApiKey, async (req: AuthRequest, res: Response) => {
   try {
+    console.log('=== SCAN SUBMISSION DEBUG ===');
+    console.log('Headers:', {
+      authorization: req.headers.authorization ? 'Present' : 'Missing',
+      userEmail: req.headers['x-user-email'],
+      contentType: req.headers['content-type'],
+      userAgent: req.headers['user-agent']
+    });
+    console.log('Body keys:', Object.keys(req.body));
+    console.log('Raw body preview:', JSON.stringify(req.body).substring(0, 500));
+
     const {
       deviceId,
       scanTimestamp,
@@ -21,37 +32,85 @@ router.post('/submit', authenticateApiKey, async (req: AuthRequest, res: Respons
       patches,
     } = req.body;
 
-    if (!deviceId || !scanTimestamp || !systemInfo) {
+    // Enhanced validation with detailed error messages
+    if (!deviceId) {
+      console.error('Missing deviceId in request');
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields: deviceId, scanTimestamp, or systemInfo',
+        message: 'Missing required field: deviceId',
+        received: { deviceId: !!deviceId, scanTimestamp: !!scanTimestamp, systemInfo: !!systemInfo }
       });
     }
 
-    // Validate and log software data
-    const softwareArray = Array.isArray(software) ? software : [];
-    const browserExtensionsArray = Array.isArray(browserExtensions) ? browserExtensions : [];
+    if (!scanTimestamp) {
+      console.error('Missing scanTimestamp in request');
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required field: scanTimestamp',
+        received: { deviceId: !!deviceId, scanTimestamp: !!scanTimestamp, systemInfo: !!systemInfo }
+      });
+    }
+
+    if (!systemInfo) {
+      console.error('Missing systemInfo in request');
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required field: systemInfo',
+        received: { deviceId: !!deviceId, scanTimestamp: !!scanTimestamp, systemInfo: !!systemInfo }
+      });
+    }
+
+    // Validate and normalize arrays with detailed logging
+    const softwareArray = Array.isArray(software) ? software : (software ? [software] : []);
+    const browserExtensionsArray = Array.isArray(browserExtensions) ? browserExtensions : (browserExtensions ? [browserExtensions] : []);
     
-    console.log(`Scan submission from device ${deviceId}:`);
-    console.log(`- Software items received: ${softwareArray.length}`);
-    console.log(`- Browser extensions received: ${browserExtensionsArray.length}`);
-    console.log(`- System: ${systemInfo.osName} ${systemInfo.osVersion}`);
+    console.log(`=== SCAN DATA VALIDATION ===`);
+    console.log(`Device ID: ${deviceId}`);
+    console.log(`User: ${req.user.email}`);
+    console.log(`Timestamp: ${scanTimestamp}`);
+    console.log(`System: ${systemInfo.osName} ${systemInfo.osVersion}`);
+    console.log(`Software items received: ${softwareArray.length}`);
+    console.log(`Browser extensions received: ${browserExtensionsArray.length}`);
+    console.log(`Patches info: ${patches ? 'Present' : 'Missing'}`);
     
+    // Log software validation
     if (softwareArray.length === 0) {
       console.warn(`⚠️ WARNING: No software items received from device ${deviceId}`);
+      console.warn('This may indicate a PowerShell collection issue');
     } else {
+      console.log(`✅ Software collection successful: ${softwareArray.length} items`);
       console.log(`First few software items:`);
       softwareArray.slice(0, 3).forEach((sw, index) => {
-        console.log(`  ${index + 1}. ${sw.name} v${sw.version} (${sw.publisher})`);
+        if (sw && sw.name) {
+          console.log(`  ${index + 1}. ${sw.name} v${sw.version || 'Unknown'} (${sw.publisher || 'Unknown'})`);
+        } else {
+          console.log(`  ${index + 1}. Invalid software object:`, sw);
+        }
       });
     }
 
-    // Create scan with pending status
+    // Validate timestamp format
+    let parsedTimestamp;
+    try {
+      parsedTimestamp = new Date(scanTimestamp);
+      if (isNaN(parsedTimestamp.getTime())) {
+        throw new Error('Invalid timestamp format');
+      }
+    } catch (error) {
+      console.error('Invalid timestamp format:', scanTimestamp);
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid timestamp format. Expected ISO 8601 format.',
+        received: scanTimestamp
+      });
+    }
+
+    // Create scan with enhanced error handling
     const scan = new Scan({
       userId: req.userId,
       userEmail: req.user.email,
       deviceId,
-      scanTimestamp: new Date(scanTimestamp),
+      scanTimestamp: parsedTimestamp,
       systemInfo,
       software: softwareArray,
       browserExtensions: browserExtensionsArray,
@@ -64,11 +123,14 @@ router.post('/submit', authenticateApiKey, async (req: AuthRequest, res: Respons
     });
 
     await scan.save();
-    console.log(`✅ Scan saved with ID: ${scan._id}`);
+    console.log(`✅ Scan saved successfully with ID: ${scan._id}`);
+    console.log(`✅ Scan data: ${softwareArray.length} software, ${browserExtensionsArray.length} extensions`);
 
-    // Analyze vulnerabilities asynchronously
+    // Analyze vulnerabilities asynchronously with enhanced error handling
     setTimeout(async () => {
       try {
+        console.log(`Starting vulnerability analysis for scan ${scan._id}...`);
+        
         const vulnerabilities = analyzeVulnerabilities(scan);
         const endpointExposureScore = calculateEndpointExposureScore({
           ...scan.toObject(),
@@ -95,11 +157,35 @@ router.post('/submit', authenticateApiKey, async (req: AuthRequest, res: Respons
           analyzedAt: new Date()
         }, { new: true });
 
-        console.log(`Scan analysis completed for device ${deviceId}:`);
+        // Update user onboarding state and agent status after successful scan
+        const user = await User.findByIdAndUpdate(req.userId, {
+          hasScanned: true,
+          securityScore: validSecureScore,
+          lastScoreUpdate: new Date()
+        }, { new: true });
+
+        // Update agent state: connected → active (after first successful scan)
+        const agent = await Agent.findOneAndUpdate(
+          { userId: req.userId, deviceId },
+          {
+            status: 'active', // Agent becomes active after successful scan
+            lastScan: new Date(),
+            firstScanCompleted: true,
+          },
+          { new: true }
+        );
+
+        if (agent) {
+          console.log(`Agent state updated: ${deviceId} → active (first scan completed)`);
+        }
+
+        console.log(`✅ Scan analysis completed for device ${deviceId}:`);
         console.log(`- Software analyzed: ${softwareArray.length}`);
-        console.log(`- Vulnerabilities: ${vulnerabilities.total}`);
+        console.log(`- Vulnerabilities found: ${vulnerabilities.total}`);
         console.log(`- Secure Score: ${validSecureScore}`);
         console.log(`- Endpoint Score: ${validEndpointScore}`);
+        console.log(`- User onboarding state updated: hasScanned = true`);
+        console.log(`- Agent status: ${agent?.status || 'not found'}`);
 
         // Generate security recommendations based on scan results
         if (updatedScan && user) {
@@ -118,14 +204,14 @@ router.post('/submit', authenticateApiKey, async (req: AuthRequest, res: Respons
               deviceId
             );
 
-            console.log(`Generated and saved ${recommendations.length} security recommendations`);
+            console.log(`✅ Generated and saved ${recommendations.length} security recommendations`);
           } catch (recError) {
             console.error('Error generating recommendations:', recError);
           }
         }
 
       } catch (error) {
-        console.error('Error analyzing scan:', error);
+        console.error('❌ Error analyzing scan:', error);
         await Scan.findByIdAndUpdate(scan._id, {
           status: 'completed',
           secureScore: 50,
@@ -143,18 +229,36 @@ router.post('/submit', authenticateApiKey, async (req: AuthRequest, res: Respons
       }
     }, 2000); // Simulate analysis delay
 
-    res.json({
+    // Return success response with detailed information
+    const response = {
       success: true,
       scanId: scan._id,
       message: 'Scan submitted successfully. Analysis in progress.',
+      data: {
+        softwareCount: softwareArray.length,
+        browserExtensionsCount: browserExtensionsArray.length,
+        deviceId: deviceId,
+        timestamp: parsedTimestamp.toISOString(),
+        estimatedAnalysisTime: '30-60 seconds'
+      },
+      // Legacy format for compatibility
       softwareCount: softwareArray.length,
-      browserExtensionsCount: browserExtensionsArray.length,
-    });
+      browserExtensionsCount: browserExtensionsArray.length
+    };
+
+    console.log('✅ Sending success response:', response);
+    res.json(response);
+
   } catch (error: any) {
-    console.error('Error submitting scan:', error);
+    console.error('❌ Critical error in scan submission:', error);
+    console.error('Stack trace:', error.stack);
+    
+    // Return detailed error for debugging
     res.status(500).json({
       success: false,
       message: error.message || 'Error submitting scan',
+      error: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+      timestamp: new Date().toISOString()
     });
   }
 });

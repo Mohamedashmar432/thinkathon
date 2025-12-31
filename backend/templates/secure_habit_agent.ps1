@@ -351,35 +351,90 @@ function Submit-InventoryData {
     Write-Log "Submitting inventory data to Secure Habit platform..."
     
     try {
-        # Convert to JSON with proper depth and formatting
-        $jsonData = $InventoryData | ConvertTo-Json -Depth 20 -Compress
+        # Validate data before submission
+        Write-Log "Validating inventory data..."
+        if (-not $InventoryData.deviceId) {
+            throw "Device ID is missing"
+        }
+        if (-not $InventoryData.systemInfo) {
+            throw "System info is missing"
+        }
         
-        # Log the data being sent for debugging
+        # Ensure arrays are properly formatted
+        if (-not $InventoryData.software) {
+            $InventoryData.software = @()
+        }
+        if (-not $InventoryData.browserExtensions) {
+            $InventoryData.browserExtensions = @()
+        }
+        
+        # Convert to JSON with proper formatting for production
+        Write-Log "Converting data to JSON..."
+        $jsonData = $InventoryData | ConvertTo-Json -Depth 10 -Compress:$false
+        
+        # Validate JSON is not empty or malformed
+        if (-not $jsonData -or $jsonData.Length -lt 50) {
+            throw "Generated JSON is too small or empty"
+        }
+        
+        # Log the data being sent for debugging (first 500 chars)
+        $jsonPreview = if ($jsonData.Length -gt 500) { 
+            $jsonData.Substring(0, 500) + "..." 
+        } else { 
+            $jsonData 
+        }
+        Write-Log "JSON preview: $jsonPreview"
         Write-Log "Software count: $($InventoryData.software.Count)"
         Write-Log "Browser extensions count: $($InventoryData.browserExtensions.Count)"
         Write-Log "JSON payload size: $($jsonData.Length) bytes"
         
-        # Debug: Log first few software items
-        if ($InventoryData.software.Count -gt 0) {
-            Write-Log "First software item: $($InventoryData.software[0].name)"
-            if ($InventoryData.software.Count -gt 1) {
-                Write-Log "Second software item: $($InventoryData.software[1].name)"
-            }
-        }
-        
+        # Prepare headers with proper encoding
         $headers = @{
             "Authorization" = "Bearer $API_KEY"
             "X-User-Email" = $USER_EMAIL
-            "Content-Type" = "application/json"
+            "Content-Type" = "application/json; charset=utf-8"
             "User-Agent" = "SecureHabit-Agent/$AGENT_VERSION"
+            "Accept" = "application/json"
         }
         
         Write-Log "Sending data to: $API_ENDPOINT"
+        Write-Log "Using API key: $($API_KEY.Substring(0, 8))..."
+        Write-Log "User email: $USER_EMAIL"
         
-        $response = Invoke-RestMethod -Uri $API_ENDPOINT -Method POST -Body $jsonData -Headers $headers -TimeoutSec 60
+        # Make request with extended timeout and retry logic
+        $maxRetries = 3
+        $retryDelay = 5
+        $response = $null
         
-        if ($response.success) {
+        for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+            try {
+                Write-Log "Attempt $attempt of $maxRetries..."
+                
+                $response = Invoke-RestMethod -Uri $API_ENDPOINT -Method POST -Body $jsonData -Headers $headers -TimeoutSec 120 -ErrorAction Stop
+                
+                # If we get here, the request succeeded
+                break
+            }
+            catch {
+                $errorMessage = $_.Exception.Message
+                Write-Log "Attempt $attempt failed: $errorMessage"
+                
+                if ($attempt -eq $maxRetries) {
+                    # Last attempt failed, re-throw the error
+                    throw $_
+                }
+                
+                # Wait before retry
+                Write-Log "Waiting $retryDelay seconds before retry..."
+                Start-Sleep -Seconds $retryDelay
+                $retryDelay *= 2 # Exponential backoff
+            }
+        }
+        
+        # Process successful response
+        if ($response -and $response.success) {
             Write-Log "✅ Inventory data submitted successfully. Scan ID: $($response.scanId)"
+            Write-Log "Response: $($response | ConvertTo-Json -Compress)"
             
             # Register agent with backend after successful scan submission
             Register-Agent -DeviceId $InventoryData.deviceId -SystemInfo $InventoryData.systemInfo
@@ -392,22 +447,37 @@ function Submit-InventoryData {
             
             return $true
         } else {
-            Write-Log "❌ Failed to submit inventory data: $($response.message)"
-            Show-Notification -Title "Secure Habit" -Message "Security scan failed: $($response.message)" -Icon "Warning"
+            $errorMsg = if ($response.message) { $response.message } else { "Unknown error - no response received" }
+            Write-Log "❌ Failed to submit inventory data: $errorMsg"
+            Write-Log "Full response: $($response | ConvertTo-Json -Compress)"
+            Show-Notification -Title "Secure Habit" -Message "Security scan failed: $errorMsg" -Icon "Warning"
             return $false
         }
     }
     catch {
         $errorMessage = $_.Exception.Message
-        Write-Log "❌ Error submitting inventory data: $errorMessage"
+        $statusCode = $_.Exception.Response.StatusCode.value__ 
         
-        if ($errorMessage -match "401|Unauthorized") {
-            Show-Notification -Title "Secure Habit" -Message "Authentication failed. Please re-download the agent." -Icon "Error"
-        } elseif ($errorMessage -match "timeout|network") {
-            Show-Notification -Title "Secure Habit" -Message "Network timeout. Please check your internet connection." -Icon "Error"
+        Write-Log "❌ Error submitting inventory data: $errorMessage"
+        Write-Log "Status code: $statusCode"
+        Write-Log "Stack trace: $($_.ScriptStackTrace)"
+        
+        # Provide specific error messages based on status code
+        if ($statusCode -eq 401) {
+            $userMessage = "Authentication failed. Please re-download the agent from your dashboard."
+        } elseif ($statusCode -eq 400) {
+            $userMessage = "Invalid data format. Please contact support."
+        } elseif ($statusCode -eq 429) {
+            $userMessage = "Too many requests. Please wait a few minutes and try again."
+        } elseif ($statusCode -eq 500) {
+            $userMessage = "Server error. Please try again later."
+        } elseif ($errorMessage -match "timeout|network|connection") {
+            $userMessage = "Network timeout. Please check your internet connection and try again."
         } else {
-            Show-Notification -Title "Secure Habit" -Message "Unable to connect to Secure Habit platform. Please try again." -Icon "Error"
+            $userMessage = "Unable to connect to Secure Habit platform. Please check your internet connection."
         }
+        
+        Show-Notification -Title "Secure Habit" -Message $userMessage -Icon "Error"
         return $false
     }
 }
@@ -483,18 +553,55 @@ try {
     $patches = Get-PatchInfo
     Write-Log "Patch information collected: $($patches.totalPatches) patches"
     
-    # Validate collected data
+    # Validate collected data before submission
     if ($software.Count -eq 0) {
         Write-Log "⚠️ WARNING: No software detected! This may indicate a collection issue."
+        Write-Log "Attempting alternative software collection method..."
+        
+        # Try alternative collection using Get-ItemProperty directly
+        try {
+            $altSoftware = Get-ItemProperty "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue | 
+                Where-Object { $_.DisplayName -and $_.DisplayName.Trim() -ne "" } | 
+                Select-Object @{Name="name";Expression={$_.DisplayName.Trim()}}, 
+                             @{Name="version";Expression={if($_.DisplayVersion){$_.DisplayVersion.Trim()}else{"Unknown"}}}, 
+                             @{Name="publisher";Expression={if($_.Publisher){$_.Publisher.Trim()}else{"Unknown"}}}, 
+                             @{Name="installDate";Expression={if($_.InstallDate){$_.InstallDate}else{""}}}
+            
+            if ($altSoftware -and $altSoftware.Count -gt 0) {
+                $software = @($altSoftware)
+                Write-Log "Alternative collection found $($software.Count) software items"
+            } else {
+                Write-Log "Alternative collection also failed - proceeding with empty software list"
+                $software = @()
+            }
+        }
+        catch {
+            Write-Log "Alternative collection failed: $_"
+            $software = @()
+        }
     }
     
-    # Prepare inventory payload with explicit array conversion
+    # Prepare inventory payload with explicit array conversion and validation
+    # Ensure software is always a proper JSON array
+    $softwareArray = if ($software -and $software.Count -gt 0) { 
+        @($software) 
+    } else { 
+        @() # Empty array
+    }
+    
+    # Ensure browser extensions is always a proper JSON array
+    $extensionsArray = if ($browserExtensions -and $browserExtensions.Count -gt 0) { 
+        @($browserExtensions) 
+    } else { 
+        @() # Empty array
+    }
+    
     $inventoryData = @{
         deviceId = $deviceId
-        scanTimestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+        scanTimestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.000Z")
         systemInfo = $systemInfo
-        software = @($software)  # Ensure it's an array
-        browserExtensions = @($browserExtensions)  # Ensure it's an array
+        software = $softwareArray
+        browserExtensions = $extensionsArray
         patches = $patches
         agentVersion = $AGENT_VERSION
         scanType = "inventory"

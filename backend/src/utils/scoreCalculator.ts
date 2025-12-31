@@ -28,10 +28,17 @@ export function getLatestScansPerDevice(scans: IScan[]): IScan[] {
 
 export function calculateUserSecureScore(scans: IScan[], user: IUser): number {
   try {
-    if (!scans || scans.length === 0) return 50; // Default score instead of 0
+    // CRITICAL: Return 0 for first-time users with no scans
+    if (!scans || scans.length === 0) {
+      console.log('No scans found - returning default score of 0 for new user');
+      return 0;
+    }
     
     const latestScans = getLatestScansPerDevice(scans);
-    if (latestScans.length === 0) return 50;
+    if (latestScans.length === 0) {
+      console.log('No latest scans found - returning default score of 0');
+      return 0;
+    }
     
     const today = new Date().toISOString().split('T')[0];
     
@@ -89,20 +96,23 @@ export function calculateUserSecureScore(scans: IScan[], user: IUser): number {
       
       // Ensure score is within valid range
       const validScore = Math.max(0, Math.min(100, Math.round(score)));
-      totalScore += isNaN(validScore) ? 50 : validScore;
+      totalScore += isNaN(validScore) ? 0 : validScore;
     });
     
     const finalScore = Math.round(totalScore / latestScans.length);
     
     // Ensure final score is valid and within range
     if (isNaN(finalScore) || finalScore === null || finalScore === undefined) {
-      return 50;
+      console.log('Invalid final score calculated - returning 0');
+      return 0;
     }
     
-    return Math.max(0, Math.min(100, finalScore));
+    const clampedScore = Math.max(0, Math.min(100, finalScore));
+    console.log(`Calculated security score: ${clampedScore} (from ${latestScans.length} scans)`);
+    return clampedScore;
   } catch (error) {
     console.error('Error in calculateUserSecureScore:', error);
-    return 50; // Return default score on any error
+    return 0; // Return 0 on any error for new users
   }
 }
 

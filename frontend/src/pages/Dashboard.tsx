@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import Layout from '../components/Layout';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -8,13 +8,14 @@ import RemediationModal from '../components/RemediationModal';
 import axios from 'axios';
 
 const Dashboard = () => {
-  const { } = useAuth(); // Remove unused user variable
+  const { user } = useAuth();
   const { theme } = useTheme();
   const [timelineDays, setTimelineDays] = useState(30);
   const [remediationModal, setRemediationModal] = useState<{
     isOpen: boolean;
     software: any;
   }>({ isOpen: false, software: null });
+  const [agentStats, setAgentStats] = useState<any>(null);
 
   const {
     stats,
@@ -31,6 +32,49 @@ const Dashboard = () => {
     refreshData,
     isOrganizationUser,
   } = useDashboardData(timelineDays);
+
+  // Check agent presence for CTA button
+  const checkAgentPresence = useCallback(async () => {
+    if (!user) return null;
+    
+    try {
+      const response = await axios.get('/api/agent/stats/overview');
+      setAgentStats(response.data.stats);
+      return response.data.stats;
+    } catch (error) {
+      console.error('Error checking agent presence:', error);
+      return null;
+    }
+  }, [user]);
+
+  // Handle Start Security Scan button click
+  const handleStartSecurityScan = useCallback(async () => {
+    console.log('Start Security Scan clicked');
+    
+    // Check if user has any agents installed
+    const stats = agentStats || await checkAgentPresence();
+    
+    if (!stats || stats.total === 0) {
+      // No agents installed - redirect to agent installation page
+      console.log('No agents found, redirecting to agent installation');
+      window.location.href = '/agents';
+    } else if (stats.active === 0) {
+      // Agents installed but none active - redirect to agent page with message
+      console.log('Agents installed but none active, redirecting to agent management');
+      window.location.href = '/agents?message=activate';
+    } else {
+      // Active agents available - redirect to scanner page
+      console.log('Active agents found, redirecting to scanner');
+      window.location.href = '/scanner';
+    }
+  }, [agentStats, checkAgentPresence]);
+
+  // Load agent stats on component mount
+  React.useEffect(() => {
+    if (user && !agentStats) {
+      checkAgentPresence();
+    }
+  }, [user, agentStats, checkAgentPresence]);
 
   const handleUninstallSoftware = async (softwareName: string, deviceId: string) => {
     try {
@@ -193,7 +237,7 @@ const Dashboard = () => {
                   {error ? 'Demo data shown - run a scan for personalized results' : 'Run a security scan to see your score'}
                 </p>
                 <button
-                  onClick={() => window.location.href = '/scanner'}
+                  onClick={handleStartSecurityScan}
                   className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium inline-flex items-center"
                 >
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">

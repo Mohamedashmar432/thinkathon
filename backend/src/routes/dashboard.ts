@@ -154,11 +154,11 @@ router.get('/stats', optionalAuth, async (req: AuthRequest, res: Response) => {
     const scans = await Scan.find({ userId: req.userId }).sort({ scanTimestamp: -1 });
     console.log(`Found ${scans.length} scans for user`);
     
-    // If no scans, return default values
+    // If no scans, return user's stored score (0 for new users)
     if (scans.length === 0) {
       const response = {
         success: true,
-        userSecureScore: 50, // Default score for new users
+        userSecureScore: user.securityScore || 0, // Use stored score, default to 0
         endpointExposureScore: 100, // Perfect score when no vulnerabilities
         totalScans: 0,
         totalDevices: 0,
@@ -167,9 +167,10 @@ router.get('/stats', optionalAuth, async (req: AuthRequest, res: Response) => {
         exploitableVulnerabilities: 0,
         lastScanDate: null,
         recentScans: [],
+        isFirstTimeUser: !user.hasScanned, // Flag for frontend
       };
       
-      console.log('No scans found, returning default stats:', response);
+      console.log('No scans found, returning stored user score:', response);
       return res.json(response);
     }
     
@@ -177,15 +178,25 @@ router.get('/stats', optionalAuth, async (req: AuthRequest, res: Response) => {
     console.log(`Latest scans per device: ${latestScans.length}`);
     
     // Calculate user secure score with proper validation
-    let userSecureScore = 50; // Default score
+    let userSecureScore = user.securityScore || 0; // Use stored score as fallback
     try {
       const calculatedScore = calculateUserSecureScore(scans, user);
       userSecureScore = isNaN(calculatedScore) || calculatedScore === null || calculatedScore === undefined 
-        ? 50 
+        ? (user.securityScore || 0) // Fallback to stored score
         : Math.max(0, Math.min(100, Math.round(calculatedScore)));
+      
+      // Update user's stored score if it changed
+      if (userSecureScore !== user.securityScore) {
+        await User.findByIdAndUpdate(req.userId, {
+          securityScore: userSecureScore,
+          lastScoreUpdate: new Date(),
+          hasScanned: true // Mark user as having completed at least one scan
+        });
+        console.log(`Updated user security score: ${user.securityScore} → ${userSecureScore}`);
+      }
     } catch (error) {
       console.error('Error calculating user secure score:', error);
-      userSecureScore = 50;
+      userSecureScore = user.securityScore || 0; // Use stored score on error
     }
     
     console.log('Calculated user secure score:', userSecureScore);

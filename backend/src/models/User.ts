@@ -10,6 +10,10 @@ export interface IUser extends Document {
   role: string;
   createdAt: Date;
   lastLogin?: Date;
+  // Onboarding state tracking
+  hasScanned: boolean;
+  securityScore: number;
+  lastScoreUpdate?: Date;
   dailyChecklist?: {
     date: Date;
     items: Array<{
@@ -59,6 +63,20 @@ const UserSchema = new Schema<IUser>({
     default: Date.now,
   },
   lastLogin: {
+    type: Date,
+  },
+  // Onboarding state fields
+  hasScanned: {
+    type: Boolean,
+    default: false,
+  },
+  securityScore: {
+    type: Number,
+    default: 0,
+    min: 0,
+    max: 100,
+  },
+  lastScoreUpdate: {
     type: Date,
   },
   dailyChecklist: {

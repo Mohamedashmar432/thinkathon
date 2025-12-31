@@ -456,30 +456,60 @@ router.post('/register', authenticateApiKey, async (req: AuthRequest, res: Respo
       });
     }
 
-    // Update or create agent record
-    const agent = await Agent.findOneAndUpdate(
-      { userId: req.userId, deviceId },
-      {
+    console.log(`Agent registration request: ${deviceId} for user ${req.user.email}`);
+
+    // Find existing agent or create new one
+    let agent = await Agent.findOne({ userId: req.userId, deviceId });
+    
+    if (agent) {
+      // Update existing agent - transition to 'connected' state
+      const previousStatus = agent.status;
+      agent.deviceName = deviceName || agent.deviceName || deviceId;
+      agent.version = version || agent.version || '1.0.0';
+      agent.lastHeartbeat = new Date();
+      agent.lastConnected = new Date();
+      agent.systemInfo = { ...agent.systemInfo, ...systemInfo };
+      
+      // State machine: installed → connected (when agent registers after download)
+      if (agent.status === 'installed') {
+        agent.status = 'connected';
+        console.log(`Agent state transition: ${previousStatus} → connected`);
+      }
+      
+      await agent.save();
+      console.log(`Agent updated: ${deviceId} (${previousStatus} → ${agent.status})`);
+    } else {
+      // Create new agent in 'connected' state (registration implies connection)
+      agent = new Agent({
+        userId: req.userId,
+        deviceId,
         deviceName: deviceName || deviceId,
         version: version || '1.0.0',
-        status: status || 'active',
+        status: 'connected', // Agent is connected when it registers
         lastHeartbeat: new Date(),
         lastConnected: new Date(),
         systemInfo: systemInfo || {},
-      },
-      { 
-        upsert: true, 
-        new: true,
-        setDefaultsOnInsert: true 
-      }
-    );
+        firstScanCompleted: false,
+      });
+      
+      await agent.save();
+      console.log(`New agent created: ${deviceId} (status: connected)`);
+    }
 
-    console.log(`Agent registered: ${deviceId} for user ${req.user.email}`);
+    console.log(`Agent registration response data:`, {
+      agentId: agent._id,
+      status: agent.status,
+      deviceId: agent.deviceId,
+      firstScanCompleted: agent.firstScanCompleted
+    });
 
     res.json({
       success: true,
       message: 'Agent registered successfully',
-      agentId: agent._id,
+      agentId: agent._id.toString(),
+      status: agent.status,
+      deviceId: agent.deviceId,
+      firstScanCompleted: agent.firstScanCompleted || false,
     });
   } catch (error: any) {
     console.error('Error registering agent:', error);
@@ -514,7 +544,9 @@ router.post('/download-installer', authenticateToken, async (req: AuthRequest, r
       });
     }
 
-    const apiEndpoint = `${process.env.API_BASE_URL}/api/scan/submit`;
+    const apiEndpoint = process.env.NODE_ENV === 'production' 
+      ? 'https://secure-habit-backend.onrender.com/api/scan/submit'
+      : `${process.env.API_BASE_URL || 'http://localhost:5000'}/api/scan/submit`;
 
     if (os === 'windows') {
       // Windows agent (existing implementation)
@@ -611,14 +643,28 @@ router.get('/stats/overview', authenticateToken, async (req: AuthRequest, res: R
   try {
     const totalAgents = await Agent.countDocuments({ userId: req.userId });
     
-    // Count active agents (online in last 5 minutes)
+    // Count active agents (completed first scan and connected recently)
     const activeAgents = await Agent.countDocuments({ 
       userId: req.userId, 
       status: 'active',
-      lastHeartbeat: { $gte: new Date(Date.now() - 5 * 60 * 1000) }
+      firstScanCompleted: true,
+      lastHeartbeat: { $gte: new Date(Date.now() - 5 * 60 * 1000) } // Active in last 5 minutes
     });
     
-    // Count inactive agents (offline or error status)
+    // Count connected agents (registered but not yet scanned)
+    const connectedAgents = await Agent.countDocuments({ 
+      userId: req.userId, 
+      status: 'connected',
+      firstScanCompleted: false
+    });
+    
+    // Count installed agents (downloaded but not yet registered)
+    const installedAgents = await Agent.countDocuments({ 
+      userId: req.userId, 
+      status: 'installed'
+    });
+    
+    // Count inactive agents (offline, error, or old active agents)
     const inactiveAgents = await Agent.countDocuments({ 
       userId: req.userId, 
       $or: [
@@ -637,13 +683,15 @@ router.get('/stats/overview', authenticateToken, async (req: AuthRequest, res: R
       status: 'uninstalled'
     });
 
-    console.log(`Agent stats for user ${req.userId}: total=${totalAgents}, active=${activeAgents}, inactive=${inactiveAgents}, uninstalled=${uninstalledAgents}`);
+    console.log(`Agent stats for user ${req.userId}: total=${totalAgents}, active=${activeAgents}, connected=${connectedAgents}, installed=${installedAgents}, inactive=${inactiveAgents}, uninstalled=${uninstalledAgents}`);
 
     res.json({
       success: true,
       stats: {
         total: totalAgents,
         active: activeAgents,
+        connected: connectedAgents,
+        installed: installedAgents,
         inactive: inactiveAgents,
         uninstalled: uninstalledAgents
       }

@@ -134,14 +134,54 @@ app.use('/api/scheduled-scans', apiLimiter, scheduledScansRoutes);
 app.use('/api/threat-feed', threatFeedLimiter, threatFeedRoutes);
 app.use('/api/admin', apiLimiter, adminRoutes);
 
-// Health check
+// Health check endpoint with detailed status
 app.get('/health', (req, res) => {
+  const uptime = process.uptime();
+  const memoryUsage = process.memoryUsage();
+  
   res.json({ 
-    status: 'ok', 
+    status: 'ok',
+    service: 'secure-habit-backend',
+    version: '1.0.0',
     timestamp: new Date().toISOString(),
+    uptime: {
+      seconds: Math.floor(uptime),
+      human: `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${Math.floor(uptime % 60)}s`
+    },
     environment: process.env.NODE_ENV || 'development',
-    mongodb: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    mongodb: {
+      status: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+      readyState: mongoose.connection.readyState,
+      host: mongoose.connection.host || 'unknown'
+    },
+    memory: {
+      used: Math.round(memoryUsage.heapUsed / 1024 / 1024),
+      total: Math.round(memoryUsage.heapTotal / 1024 / 1024),
+      external: Math.round(memoryUsage.external / 1024 / 1024),
+      unit: 'MB'
+    },
+    keepAlive: {
+      enabled: process.env.NODE_ENV === 'production',
+      lastPing: new Date().toISOString()
+    }
   });
+});
+
+// Additional health endpoints for monitoring
+app.get('/api/health', (req, res) => {
+  res.redirect(301, '/health');
+});
+
+app.get('/ping', (req, res) => {
+  res.json({ 
+    pong: true, 
+    timestamp: new Date().toISOString(),
+    server: 'secure-habit-backend'
+  });
+});
+
+app.get('/api/ping', (req, res) => {
+  res.redirect(301, '/ping');
 });
 
 // Test endpoint for debugging
@@ -198,5 +238,56 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   });
 });
 
-export default app;
+// Keep-alive system to prevent Render free tier from spinning down
+if (process.env.NODE_ENV === 'production') {
+  console.log('🔄 Initializing keep-alive system for production...');
+  
+  // Self-ping every 14 minutes (Render spins down after 15 minutes of inactivity)
+  const keepAliveInterval = setInterval(async () => {
+    try {
+      const baseUrl = process.env.RENDER_EXTERNAL_URL || 'https://secure-habit-backend.onrender.com';
+      
+      // Primary health check
+      const healthResponse = await fetch(`${baseUrl}/health`, {
+        method: 'GET',
+        headers: { 'User-Agent': 'KeepAlive-Internal/1.0' }
+      });
+      
+      if (healthResponse.ok) {
+        console.log(`✅ Keep-alive ping successful: ${healthResponse.status} at ${new Date().toISOString()}`);
+        
+        // Additional warmup requests to keep different services active
+        try {
+          await fetch(`${baseUrl}/api/dashboard/stats`, { 
+            method: 'GET',
+            headers: { 'User-Agent': 'KeepAlive-Internal/1.0' }
+          });
+          await fetch(`${baseUrl}/api/agent/stats/overview`, { 
+            method: 'GET',
+            headers: { 'User-Agent': 'KeepAlive-Internal/1.0' }
+          });
+        } catch (warmupError) {
+          // Warmup failures are non-critical
+          console.log('Warmup requests completed with some failures');
+        }
+      } else {
+        console.log(`⚠️ Keep-alive ping returned: ${healthResponse.status}`);
+      }
+    } catch (error) {
+      console.log(`❌ Keep-alive ping failed: ${(error as Error).message}`);
+    }
+  }, 14 * 60 * 1000); // Every 14 minutes
+  
+  // Cleanup on process termination
+  process.on('SIGTERM', () => {
+    console.log('🛑 Cleaning up keep-alive system...');
+    clearInterval(keepAliveInterval);
+  });
+  
+  process.on('SIGINT', () => {
+    console.log('🛑 Cleaning up keep-alive system...');
+    clearInterval(keepAliveInterval);
+  });
+}
 
+export default app;

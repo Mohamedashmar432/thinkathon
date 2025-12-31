@@ -4,12 +4,13 @@ export interface IAgent extends Document {
   userId: mongoose.Types.ObjectId;
   deviceId: string;
   deviceName: string;
-  status: 'active' | 'inactive' | 'installing' | 'uninstalled' | 'error';
+  status: 'installed' | 'connected' | 'scanning' | 'completed' | 'active' | 'inactive' | 'uninstalled' | 'error';
   version: string;
   installedAt: Date;
   lastHeartbeat?: Date;
   lastConnected?: Date;
   lastScan?: Date;
+  firstScanCompleted: boolean; // Track if agent has completed first scan
   uninstalledAt?: Date;
   commandHistory: Array<{
     command: string;
@@ -39,8 +40,8 @@ const AgentSchema = new Schema<IAgent>({
   deviceName: String,
   status: {
     type: String,
-    enum: ['active', 'inactive', 'installing', 'uninstalled', 'error'],
-    default: 'installing',
+    enum: ['installed', 'connected', 'scanning', 'completed', 'active', 'inactive', 'uninstalled', 'error'],
+    default: 'installed', // Agent starts as installed, becomes active after first successful scan
   },
   version: String,
   installedAt: {
@@ -50,6 +51,10 @@ const AgentSchema = new Schema<IAgent>({
   lastHeartbeat: Date,
   lastConnected: Date,
   lastScan: Date,
+  firstScanCompleted: {
+    type: Boolean,
+    default: false,
+  },
   uninstalledAt: Date,
   commandHistory: [{
     command: String,
