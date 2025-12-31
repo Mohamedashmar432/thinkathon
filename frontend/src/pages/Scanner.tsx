@@ -28,7 +28,7 @@ const Scanner = () => {
     try {
       const response = await axios.post(
         '/api/agent/download-installer',
-        {},
+        { os: 'windows' }, // FIX: Always specify Windows OS for Scanner page
         { responseType: 'blob' }
       );
 
