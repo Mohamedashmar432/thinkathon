@@ -460,6 +460,63 @@ class TroubleshootService {
         });
       }
 
+      // Check AI Gateway fallback providers (optional)
+      try {
+        const aiGatewayHealth = await aiGateway.healthCheck();
+        
+        if (aiGatewayHealth.geminiAvailable && !aiGatewayHealth.fallbackAvailable) {
+          results.push({
+            subsystem: 'ai_fallback_providers',
+            status: 'OK',
+            message: 'AI Gateway operational with Gemini (fallback providers not configured - this is optional)',
+            details: { 
+              geminiAvailable: true, 
+              fallbackAvailable: false,
+              note: 'Fallback providers (Groq/OpenAI) are optional when Gemini is working'
+            },
+            severity: 'LOW',
+            timestamp: new Date()
+          });
+        } else if (aiGatewayHealth.geminiAvailable && aiGatewayHealth.fallbackAvailable) {
+          results.push({
+            subsystem: 'ai_fallback_providers',
+            status: 'OK',
+            message: 'AI Gateway operational with Gemini and fallback providers configured',
+            details: aiGatewayHealth.details,
+            severity: 'LOW',
+            timestamp: new Date()
+          });
+        } else if (!aiGatewayHealth.geminiAvailable && aiGatewayHealth.fallbackAvailable) {
+          results.push({
+            subsystem: 'ai_fallback_providers',
+            status: 'WARNING',
+            message: 'AI Gateway running on fallback providers only (Gemini unavailable)',
+            details: aiGatewayHealth.details,
+            severity: 'MEDIUM',
+            timestamp: new Date()
+          });
+        } else {
+          results.push({
+            subsystem: 'ai_fallback_providers',
+            status: 'FAILED',
+            message: 'No AI providers available (neither Gemini nor fallback providers)',
+            details: aiGatewayHealth.details,
+            recommendedAction: 'Configure at least one AI provider (Gemini, Groq, or OpenAI)',
+            severity: 'HIGH',
+            timestamp: new Date()
+          });
+        }
+      } catch (error) {
+        results.push({
+          subsystem: 'ai_fallback_providers',
+          status: 'WARNING',
+          message: 'Could not check AI Gateway fallback status',
+          rootCause: (error as Error).message,
+          severity: 'LOW',
+          timestamp: new Date()
+        });
+      }
+
       // Check external API endpoints
       const externalAPIs = [
         { name: 'NVD CVE API', url: 'https://services.nvd.nist.gov/rest/json/cves/2.0?resultsPerPage=1' },
