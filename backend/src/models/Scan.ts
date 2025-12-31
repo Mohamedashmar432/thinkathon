@@ -5,6 +5,9 @@ export interface IScan extends Document {
   userEmail: string;
   deviceId: string;
   scanTimestamp: Date;
+  scanType?: 'quick' | 'full' | 'health';
+  isScheduled?: boolean;
+  scheduledScanId?: mongoose.Types.ObjectId;
   systemInfo: {
     computerName: string;
     osName: string;
@@ -52,7 +55,8 @@ export interface IScan extends Document {
   };
   secureScore: number;
   endpointExposureScore: number;
-  status: 'pending' | 'analyzing' | 'completed';
+  status: 'pending' | 'running' | 'analyzing' | 'completed' | 'failed';
+  errorMessage?: string;
   createdAt: Date;
   analyzedAt?: Date;
 }
@@ -74,6 +78,19 @@ const ScanSchema = new Schema<IScan>({
   scanTimestamp: {
     type: Date,
     required: true,
+  },
+  scanType: {
+    type: String,
+    enum: ['quick', 'full', 'health'],
+    default: 'quick',
+  },
+  isScheduled: {
+    type: Boolean,
+    default: false,
+  },
+  scheduledScanId: {
+    type: Schema.Types.ObjectId,
+    ref: 'ScheduledScan',
   },
   systemInfo: {
     computerName: String,
@@ -127,9 +144,10 @@ const ScanSchema = new Schema<IScan>({
   endpointExposureScore: Number,
   status: {
     type: String,
-    enum: ['pending', 'analyzing', 'completed'],
+    enum: ['pending', 'running', 'analyzing', 'completed', 'failed'],
     default: 'pending',
   },
+  errorMessage: String,
   createdAt: {
     type: Date,
     default: Date.now,

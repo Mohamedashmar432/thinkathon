@@ -1,0 +1,657 @@
+import express, { Response } from 'express';
+import WebSocket from 'ws';
+import fs from 'fs';
+import path from 'path';
+import Agent from '../models/Agent';
+import User from '../models/User';
+import Scan from '../models/Scan';
+import { authenticateToken, authenticateApiKey, AuthRequest } from '../middleware/auth';
+import { generateApiKey } from '../utils/apiKeyGenerator';
+import { analyzeVulnerabilities } from '../utils/vulnerabilityAnalyzer';
+import { calculateUserSecureScore, calculateEndpointExposureScore } from '../utils/scoreCalculator';
+
+const router = express.Router();
+
+// Store active WebSocket connections
+const activeConnections = new Map<string, WebSocket>();
+
+// WebSocket server setup
+export function setupWebSocketServer(server: any) {
+  const wss = new WebSocket.Server({ 
+    server, 
+    path: '/agent-ws',
+    verifyClient: (info: any) => {
+      // Basic verification - detailed auth happens in connection handler
+      return true;
+    }
+  });
+
+  wss.on('connection', async (ws: WebSocket, req) => {
+    console.log('WebSocket connection attempt');
+    
+    try {
+      const apiKey = req.headers.authorization?.toString().replace('Bearer ', '');
+      const deviceId = req.headers['x-device-id']?.toString();
+      const userEmail = req.headers['x-user-email']?.toString();
+
+      if (!apiKey || !deviceId || !userEmail) {
+        console.log('Missing credentials in WebSocket connection');
+        ws.close(1008, 'Missing credentials');
+        return;
+      }
+
+      // Verify API key and get user
+      const user = await User.findOne({ apiKey, email: userEmail.toLowerCase() });
+      if (!user) {
+        console.log('Invalid API key in WebSocket connection');
+        ws.close(1008, 'Invalid API key');
+        return;
+      }
+
+      // Register connection
+      const connectionKey = `${user.email}-${deviceId}`;
+      activeConnections.set(connectionKey, ws);
+
+      // Update or create agent status
+      await Agent.findOneAndUpdate(
+        { userId: user._id, deviceId },
+        {
+          status: 'active',
+          lastHeartbeat: new Date(),
+          lastConnected: new Date(),
+        },
+        { upsert: true }
+      );
+
+      console.log(`Agent connected: ${connectionKey}`);
+
+      // Handle messages from agent
+      ws.on('message', async (data: WebSocket.Data) => {
+        try {
+          const message = JSON.parse(data.toString());
+          await handleAgentMessage(user._id.toString(), deviceId, message);
+        } catch (err) {
+          console.error('Error handling agent message:', err);
+        }
+      });
+
+      // Handle disconnection
+      ws.on('close', async () => {
+        activeConnections.delete(connectionKey);
+        await Agent.findOneAndUpdate(
+          { userId: user._id, deviceId },
+          { status: 'inactive' }
+        );
+        console.log(`Agent disconnected: ${connectionKey}`);
+      });
+
+      // Send welcome message
+      ws.send(JSON.stringify({
+        type: 'WELCOME',
+        message: 'Connected to Security Platform',
+        timestamp: new Date().toISOString()
+      }));
+
+    } catch (error) {
+      console.error('WebSocket connection error:', error);
+      ws.close(1011, 'Internal server error');
+    }
+  });
+
+  return wss;
+}
+
+// Handle messages from agent
+async function handleAgentMessage(userId: string, deviceId: string, message: any) {
+  console.log(`Received message from ${deviceId}:`, message.type);
+  
+  switch (message.type) {
+    case 'HEARTBEAT':
+      await Agent.findOneAndUpdate(
+        { userId, deviceId },
+        {
+          lastHeartbeat: new Date(),
+          version: message.version,
+          status: 'active',
+          systemInfo: message.systemInfo || {}
+        }
+      );
+      break;
+
+    case 'SCAN_RESULT':
+      try {
+        // Parse scan data
+        const scanData = typeof message.data === 'string' 
+          ? JSON.parse(message.data) 
+          : message.data;
+
+        // Create scan record
+        const scan = new Scan({
+          userId,
+          userEmail: message.userEmail || '',
+          deviceId,
+          scanTimestamp: new Date(message.timestamp),
+          systemInfo: scanData.systemInfo || {},
+          software: scanData.software || [],
+          browserExtensions: scanData.browserExtensions || [],
+          patches: scanData.patches || {
+            totalPatches: 0,
+            latestPatchId: '',
+            latestPatchDate: new Date()
+          },
+          status: 'analyzing'
+        });
+
+        await scan.save();
+
+        // Analyze vulnerabilities asynchronously
+        setTimeout(async () => {
+          try {
+            const vulnerabilities = analyzeVulnerabilities(scan);
+            const endpointExposureScore = calculateEndpointExposureScore({
+              ...scan.toObject(),
+              vulnerabilities,
+            } as any);
+
+            const user = await User.findById(userId);
+            const userScans = await Scan.find({ userId });
+            const secureScore = calculateUserSecureScore([...userScans, scan], user!);
+
+            // Ensure scores are valid numbers
+            const validSecureScore = isNaN(secureScore) ? 0 : Math.max(0, Math.min(100, secureScore));
+            const validEndpointScore = isNaN(endpointExposureScore) ? 100 : Math.max(0, Math.min(100, endpointExposureScore));
+
+            // Update scan with analysis results
+            await Scan.findByIdAndUpdate(scan._id, {
+              vulnerabilities,
+              secureScore: validSecureScore,
+              endpointExposureScore: validEndpointScore,
+              status: 'completed',
+              analyzedAt: new Date()
+            });
+
+            // Update agent last scan time
+            await Agent.findOneAndUpdate(
+              { userId, deviceId },
+              { lastScan: new Date() }
+            );
+
+            console.log(`Scan analysis completed for device ${deviceId}`);
+          } catch (error) {
+            console.error('Error analyzing scan:', error);
+            await Scan.findByIdAndUpdate(scan._id, { 
+              status: 'completed',
+              secureScore: 0,
+              endpointExposureScore: 100
+            });
+          }
+        }, 2000);
+
+      } catch (error) {
+        console.error('Error processing scan result:', error);
+      }
+      break;
+
+    case 'COMMAND_RESULT':
+      // Log command execution result
+      await Agent.findOneAndUpdate(
+        { userId, deviceId },
+        {
+          $push: {
+            commandHistory: {
+              command: message.command,
+              success: message.success,
+              result: message.result,
+              timestamp: new Date()
+            }
+          }
+        }
+      );
+      break;
+
+    default:
+      console.log(`Unknown message type: ${message.type}`);
+  }
+}
+
+// Send command to agent
+async function sendCommandToAgent(userId: string, deviceId: string, command: any): Promise<{ success: boolean; message: string }> {
+  const user = await User.findById(userId);
+  if (!user) {
+    return { success: false, message: 'User not found' };
+  }
+
+  const connectionKey = `${user.email}-${deviceId}`;
+  const ws = activeConnections.get(connectionKey);
+
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    try {
+      ws.send(JSON.stringify(command));
+      return { success: true, message: 'Command sent' };
+    } catch (error) {
+      return { success: false, message: 'Failed to send command' };
+    }
+  } else {
+    return { success: false, message: 'Agent is offline' };
+  }
+}
+
+// API Routes
+
+// Get all agents for user
+router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const agents = await Agent.find({ userId: req.userId }).sort({ lastHeartbeat: -1 });
+    
+    res.json({
+      success: true,
+      agents: agents.map(agent => ({
+        deviceId: agent.deviceId,
+        deviceName: agent.deviceName || agent.deviceId,
+        status: agent.status,
+        version: agent.version,
+        installedAt: agent.installedAt,
+        lastHeartbeat: agent.lastHeartbeat,
+        lastScan: agent.lastScan,
+        systemInfo: agent.systemInfo
+      }))
+    });
+  } catch (err) {
+    console.error('Error fetching agents:', err);
+    res.status(500).json({ success: false, message: 'Failed to fetch agents' });
+  }
+});
+
+// Get single agent details
+router.get('/:deviceId', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const agent = await Agent.findOne({
+      userId: req.userId,
+      deviceId: req.params.deviceId
+    });
+
+    if (!agent) {
+      return res.status(404).json({ success: false, message: 'Agent not found' });
+    }
+
+    res.json({ success: true, agent });
+  } catch (err) {
+    console.error('Error fetching agent:', err);
+    res.status(500).json({ success: false, message: 'Failed to fetch agent' });
+  }
+});
+
+// Initiate quick scan
+router.post('/:deviceId/quick-scan', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    // Create a pending scan record
+    const scan = new Scan({
+      userId: req.userId,
+      userEmail: req.user.email,
+      deviceId: req.params.deviceId,
+      scanTimestamp: new Date(),
+      status: 'pending',
+      systemInfo: {
+        osName: 'Unknown',
+        osVersion: 'Unknown',
+        architecture: 'Unknown'
+      },
+      software: [],
+      browserExtensions: [],
+      patches: {
+        totalPatches: 0,
+        latestPatchId: '',
+        latestPatchDate: new Date()
+      }
+    });
+
+    await scan.save();
+
+    const result = await sendCommandToAgent(
+      req.userId!,
+      req.params.deviceId,
+      { 
+        type: 'QUICK_SCAN',
+        scanId: scan._id.toString(),
+        timestamp: new Date().toISOString()
+      }
+    );
+    
+    res.json({
+      ...result,
+      scanId: scan._id.toString()
+    });
+  } catch (err) {
+    console.error('Error initiating quick scan:', err);
+    res.status(500).json({ success: false, message: 'Failed to initiate scan' });
+  }
+});
+
+// Initiate full scan
+router.post('/:deviceId/full-scan', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    // Create a pending scan record
+    const scan = new Scan({
+      userId: req.userId,
+      userEmail: req.user.email,
+      deviceId: req.params.deviceId,
+      scanTimestamp: new Date(),
+      status: 'pending',
+      systemInfo: {
+        osName: 'Unknown',
+        osVersion: 'Unknown',
+        architecture: 'Unknown'
+      },
+      software: [],
+      browserExtensions: [],
+      patches: {
+        totalPatches: 0,
+        latestPatchId: '',
+        latestPatchDate: new Date()
+      }
+    });
+
+    await scan.save();
+
+    const result = await sendCommandToAgent(
+      req.userId!,
+      req.params.deviceId,
+      { 
+        type: 'FULL_SCAN',
+        scanId: scan._id.toString(),
+        timestamp: new Date().toISOString()
+      }
+    );
+    
+    res.json({
+      ...result,
+      scanId: scan._id.toString()
+    });
+  } catch (err) {
+    console.error('Error initiating full scan:', err);
+    res.status(500).json({ success: false, message: 'Failed to initiate scan' });
+  }
+});
+
+// Uninstall software remotely
+router.post('/:deviceId/uninstall', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const { softwareName } = req.body;
+    
+    if (!softwareName) {
+      return res.status(400).json({ success: false, message: 'Software name is required' });
+    }
+
+    const result = await sendCommandToAgent(
+      req.userId!,
+      req.params.deviceId,
+      {
+        type: 'UNINSTALL_SOFTWARE',
+        payload: softwareName,
+        timestamp: new Date().toISOString()
+      }
+    );
+    res.json(result);
+  } catch (err) {
+    console.error('Error uninstalling software:', err);
+    res.status(500).json({ success: false, message: 'Failed to uninstall software' });
+  }
+});
+
+// Agent health check
+router.post('/:deviceId/health-check', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const result = await sendCommandToAgent(
+      req.userId!,
+      req.params.deviceId,
+      { 
+        type: 'HEALTH_CHECK',
+        timestamp: new Date().toISOString()
+      }
+    );
+    res.json(result);
+  } catch (err) {
+    console.error('Error initiating health check:', err);
+    res.status(500).json({ success: false, message: 'Failed to initiate health check' });
+  }
+});
+
+// Uninstall agent (self-destruct)
+router.post('/:deviceId/uninstall-agent', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const result = await sendCommandToAgent(
+      req.userId!,
+      req.params.deviceId,
+      { 
+        type: 'SELF_DESTRUCT',
+        timestamp: new Date().toISOString()
+      }
+    );
+
+    // Mark agent as uninstalled in database
+    await Agent.findOneAndUpdate(
+      { userId: req.userId, deviceId: req.params.deviceId },
+      { 
+        status: 'uninstalled', 
+        uninstalledAt: new Date() 
+      }
+    );
+
+    res.json(result);
+  } catch (err) {
+    console.error('Error uninstalling agent:', err);
+    res.status(500).json({ success: false, message: 'Failed to uninstall agent' });
+  }
+});
+
+// Register agent (from PowerShell script)
+router.post('/register', authenticateApiKey, async (req: AuthRequest, res: Response) => {
+  try {
+    const { deviceId, deviceName, version, systemInfo, status } = req.body;
+
+    if (!deviceId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Device ID is required',
+      });
+    }
+
+    // Update or create agent record
+    const agent = await Agent.findOneAndUpdate(
+      { userId: req.userId, deviceId },
+      {
+        deviceName: deviceName || deviceId,
+        version: version || '1.0.0',
+        status: status || 'active',
+        lastHeartbeat: new Date(),
+        lastConnected: new Date(),
+        systemInfo: systemInfo || {},
+      },
+      { 
+        upsert: true, 
+        new: true,
+        setDefaultsOnInsert: true 
+      }
+    );
+
+    console.log(`Agent registered: ${deviceId} for user ${req.user.email}`);
+
+    res.json({
+      success: true,
+      message: 'Agent registered successfully',
+      agentId: agent._id,
+    });
+  } catch (error: any) {
+    console.error('Error registering agent:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error registering agent',
+    });
+  }
+});
+
+// Download agent installer
+router.post('/download-installer', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Generate API key if doesn't exist
+    if (!user.apiKey) {
+      user.apiKey = generateApiKey(user.email);
+      await user.save();
+    }
+
+    const { os } = req.body;
+    const supportedOS = ['windows', 'linux', 'macos'];
+    
+    if (!os || !supportedOS.includes(os)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid or missing OS parameter. Supported: windows, linux, macos' 
+      });
+    }
+
+    const apiEndpoint = `${process.env.API_BASE_URL}/api/scan/submit`;
+
+    if (os === 'windows') {
+      // Windows agent (existing implementation)
+      const agentTemplatePath = path.join(__dirname, '../../templates/secure_habit_agent.ps1');
+      let agentTemplate = fs.readFileSync(agentTemplatePath, 'utf-8');
+
+      // Replace placeholders in PowerShell script
+      agentTemplate = agentTemplate
+        .replace(/{{USER_EMAIL}}/g, user.email)
+        .replace(/{{API_ENDPOINT}}/g, apiEndpoint)
+        .replace(/{{API_KEY}}/g, user.apiKey);
+
+      // Read batch installer template
+      const installerTemplatePath = path.join(__dirname, '../../templates/agent_installer.bat');
+      let installerTemplate = fs.readFileSync(installerTemplatePath, 'utf-8');
+
+      // Embed PowerShell script into batch file
+      const finalInstaller = installerTemplate.replace('{{POWERSHELL_AGENT_CONTENT}}', agentTemplate);
+
+      // Set headers for file download
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', 'attachment; filename="SecureHabitAgent.bat"');
+      
+      res.send(finalInstaller);
+
+    } else if (os === 'linux') {
+      // Linux agent
+      const agentTemplatePath = path.join(__dirname, '../../templates/secure_habit_agent_linux.sh');
+      let agentTemplate = fs.readFileSync(agentTemplatePath, 'utf-8');
+
+      // Replace placeholders in Linux script
+      agentTemplate = agentTemplate
+        .replace(/{{USER_EMAIL}}/g, user.email)
+        .replace(/{{API_ENDPOINT}}/g, apiEndpoint)
+        .replace(/{{API_KEY}}/g, user.apiKey);
+
+      // Set headers for file download
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', 'attachment; filename="secure-habit-agent.sh"');
+      
+      res.send(agentTemplate);
+
+    } else if (os === 'macos') {
+      // macOS agent
+      const agentTemplatePath = path.join(__dirname, '../../templates/secure_habit_agent_macos.sh');
+      let agentTemplate = fs.readFileSync(agentTemplatePath, 'utf-8');
+
+      // Replace placeholders in macOS script
+      agentTemplate = agentTemplate
+        .replace(/{{USER_EMAIL}}/g, user.email)
+        .replace(/{{API_ENDPOINT}}/g, apiEndpoint)
+        .replace(/{{API_KEY}}/g, user.apiKey);
+
+      // Set headers for file download
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', 'attachment; filename="secure-habit-agent-macos.sh"');
+      
+      res.send(agentTemplate);
+    }
+
+  } catch (err) {
+    console.error('Error generating installer:', err);
+    res.status(500).json({ success: false, message: 'Failed to generate installer' });
+  }
+});
+
+// Deactivate agent (for deployment limit management)
+router.post('/:deviceId/deactivate', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const agent = await Agent.findOneAndUpdate(
+      { userId: req.userId, deviceId: req.params.deviceId },
+      { 
+        status: 'inactive',
+        lastHeartbeat: new Date()
+      }
+    );
+
+    if (!agent) {
+      return res.status(404).json({ success: false, message: 'Agent not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Agent deactivated successfully'
+    });
+  } catch (err) {
+    console.error('Error deactivating agent:', err);
+    res.status(500).json({ success: false, message: 'Failed to deactivate agent' });
+  }
+});
+
+// Get agent statistics
+router.get('/stats/overview', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const totalAgents = await Agent.countDocuments({ userId: req.userId });
+    
+    // Count active agents (online in last 5 minutes)
+    const activeAgents = await Agent.countDocuments({ 
+      userId: req.userId, 
+      status: 'active',
+      lastHeartbeat: { $gte: new Date(Date.now() - 5 * 60 * 1000) }
+    });
+    
+    // Count inactive agents (offline or error status)
+    const inactiveAgents = await Agent.countDocuments({ 
+      userId: req.userId, 
+      $or: [
+        { status: 'inactive' },
+        { status: 'error' },
+        { 
+          status: 'active',
+          lastHeartbeat: { $lt: new Date(Date.now() - 5 * 60 * 1000) }
+        }
+      ]
+    });
+    
+    // Count uninstalled agents
+    const uninstalledAgents = await Agent.countDocuments({ 
+      userId: req.userId, 
+      status: 'uninstalled'
+    });
+
+    console.log(`Agent stats for user ${req.userId}: total=${totalAgents}, active=${activeAgents}, inactive=${inactiveAgents}, uninstalled=${uninstalledAgents}`);
+
+    res.json({
+      success: true,
+      stats: {
+        total: totalAgents,
+        active: activeAgents,
+        inactive: inactiveAgents,
+        uninstalled: uninstalledAgents
+      }
+    });
+  } catch (err) {
+    console.error('Error fetching agent stats:', err);
+    res.status(500).json({ success: false, message: 'Failed to fetch stats' });
+  }
+});
+
+export default router;

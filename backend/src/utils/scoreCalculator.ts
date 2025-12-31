@@ -27,51 +27,100 @@ export function getLatestScansPerDevice(scans: IScan[]): IScan[] {
 }
 
 export function calculateUserSecureScore(scans: IScan[], user: IUser): number {
-  if (scans.length === 0) return 0;
-  
-  const latestScans = getLatestScansPerDevice(scans);
-  const today = new Date().toISOString().split('T')[0];
-  
-  let totalScore = 0;
-  
-  latestScans.forEach(scan => {
-    let score = 100;
+  try {
+    if (!scans || scans.length === 0) return 50; // Default score instead of 0
     
-    // Software vulnerabilities (-40 max)
-    if (scan.software.length > 0) {
-      const vulnRatio = scan.vulnerabilities.total / scan.software.length;
-      score -= Math.min(40, vulnRatio * 50);
-    }
+    const latestScans = getLatestScansPerDevice(scans);
+    if (latestScans.length === 0) return 50;
     
-    // Critical CVEs (-5 each, max -30)
-    score -= Math.min(30, scan.vulnerabilities.critical * 5);
+    const today = new Date().toISOString().split('T')[0];
     
-    // Exploitable vulnerabilities (-10 each, max -20)
-    score -= Math.min(20, scan.vulnerabilities.exploitable * 10);
+    let totalScore = 0;
     
-    // Outdated patches (-10 if >30 days, -20 if >60 days)
-    const daysSincePatches = getDaysSince(scan.patches.latestPatchDate);
-    if (daysSincePatches > 60) score -= 20;
-    else if (daysSincePatches > 30) score -= 10;
-    
-    // Daily checklist bonus (+5 if completed today)
-    if (user.dailyChecklist?.date) {
-      const checklistDate = new Date(user.dailyChecklist.date).toISOString().split('T')[0];
-      if (checklistDate === today && isChecklistComplete(user.dailyChecklist)) {
-        score += 5;
+    latestScans.forEach(scan => {
+      let score = 100;
+      
+      // Ensure vulnerabilities object exists with proper defaults
+      const vulnerabilities = scan.vulnerabilities || {
+        total: 0,
+        critical: 0,
+        high: 0,
+        medium: 0,
+        low: 0,
+        exploitable: 0,
+        items: []
+      };
+      
+      // Validate vulnerability numbers
+      const total = Math.max(0, vulnerabilities.total || 0);
+      const critical = Math.max(0, vulnerabilities.critical || 0);
+      const high = Math.max(0, vulnerabilities.high || 0);
+      const exploitable = Math.max(0, vulnerabilities.exploitable || 0);
+      
+      // Software vulnerabilities (-40 max)
+      if (scan.software && scan.software.length > 0 && total > 0) {
+        const vulnRatio = total / scan.software.length;
+        score -= Math.min(40, vulnRatio * 50);
       }
+      
+      // Critical CVEs (-5 each, max -30)
+      score -= Math.min(30, critical * 5);
+      
+      // High severity CVEs (-3 each, max -20)
+      score -= Math.min(20, high * 3);
+      
+      // Exploitable vulnerabilities (-10 each, max -25)
+      score -= Math.min(25, exploitable * 10);
+      
+      // Outdated patches penalty
+      if (scan.patches && scan.patches.latestPatchDate) {
+        const daysSincePatches = getDaysSince(scan.patches.latestPatchDate);
+        if (daysSincePatches > 60) score -= 20;
+        else if (daysSincePatches > 30) score -= 10;
+      }
+      
+      // Daily checklist bonus (+5 if completed today)
+      if (user.dailyChecklist?.date) {
+        const checklistDate = new Date(user.dailyChecklist.date).toISOString().split('T')[0];
+        if (checklistDate === today && isChecklistComplete(user.dailyChecklist)) {
+          score += 5;
+        }
+      }
+      
+      // Ensure score is within valid range
+      const validScore = Math.max(0, Math.min(100, Math.round(score)));
+      totalScore += isNaN(validScore) ? 50 : validScore;
+    });
+    
+    const finalScore = Math.round(totalScore / latestScans.length);
+    
+    // Ensure final score is valid and within range
+    if (isNaN(finalScore) || finalScore === null || finalScore === undefined) {
+      return 50;
     }
     
-    totalScore += Math.max(0, Math.min(100, score));
-  });
-  
-  return Math.round(totalScore / latestScans.length);
+    return Math.max(0, Math.min(100, finalScore));
+  } catch (error) {
+    console.error('Error in calculateUserSecureScore:', error);
+    return 50; // Return default score on any error
+  }
 }
 
 export function calculateEndpointExposureScore(scan: IScan): number {
+  // Ensure vulnerabilities object exists
+  const vulnerabilities = scan.vulnerabilities || {
+    total: 0,
+    critical: 0,
+    high: 0,
+    medium: 0,
+    low: 0,
+    exploitable: 0,
+    items: []
+  };
+  
   const endpoints: Array<{ endpoint: string; cvssScore: number }> = [];
   
-  scan.vulnerabilities.items.forEach(vuln => {
+  vulnerabilities.items.forEach(vuln => {
     if (vuln.affectedEndpoints && vuln.affectedEndpoints.length > 0) {
       vuln.affectedEndpoints.forEach(endpoint => {
         endpoints.push({
@@ -82,7 +131,7 @@ export function calculateEndpointExposureScore(scan: IScan): number {
     }
   });
   
-  if (endpoints.length === 0) return 100;
+  if (endpoints.length === 0) return 100; // Perfect score if no vulnerable endpoints
   
   // Calculate average exposure (invert CVSS - higher CVSS = lower score)
   let totalExposure = 0;
@@ -91,6 +140,9 @@ export function calculateEndpointExposureScore(scan: IScan): number {
   });
   
   const exposureScore = Math.round((totalExposure / endpoints.length) * 10);
-  return Math.max(0, Math.min(100, exposureScore));
+  const finalScore = Math.max(0, Math.min(100, exposureScore));
+  
+  // Return valid score
+  return isNaN(finalScore) ? 100 : finalScore;
 }
 

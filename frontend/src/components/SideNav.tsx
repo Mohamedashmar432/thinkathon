@@ -14,6 +14,11 @@ const SideNav = () => {
   const { user } = useAuth();
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['dashboard']));
 
+  // Check if user is admin
+  const isAdmin = user?.email?.includes('admin') || 
+                  user?.email === 'ashmar@thinkbridge.in' ||
+                  ['admin@thinkbridge.in', 'admin@thinkbridge.com', 'support@thinkbridge.in'].includes(user?.email || '');
+
   const toggleSection = (section: string) => {
     const newExpanded = new Set(expandedSections);
     if (newExpanded.has(section)) {
@@ -32,11 +37,15 @@ const SideNav = () => {
       icon: '🛡️',
       children: [
         { name: 'Dashboard', path: '/dashboard', icon: '📊' },
-        { name: 'Scans', path: '/scans', icon: '🔍' },
-        { name: 'Scanner', path: '/scanner', icon: '📥' },
+        { name: 'Threat Intelligence', path: '/threat-intelligence', icon: '🔍' },
+        { name: 'Inventory', path: '/inventory', icon: '📦' },
+        { name: 'Recommendations', path: '/recommendations', icon: '💡' },
+        { name: 'Agent Control', path: '/agents', icon: '🤖' },
+        { name: 'Security Checklist', path: '/checklist', icon: '✅' },
       ],
     },
     { name: 'Settings', path: '/settings', icon: '⚙️' },
+    ...(isAdmin ? [{ name: 'Admin Portal', path: '/admin', icon: '🔧' }] : []),
   ];
 
   const isActive = (path: string) => {
@@ -50,7 +59,7 @@ const SideNav = () => {
     <nav className="w-64 bg-gray-900 text-gray-300 h-screen fixed left-0 top-0 overflow-y-auto">
       <div className="p-4 border-b border-gray-800">
         <div className="flex items-center space-x-2">
-          <span className="text-xl font-bold text-white">Thinkathon</span>
+          <span className="text-xl font-bold text-white">Secure Habit</span>
         </div>
       </div>
 

@@ -8,7 +8,7 @@ interface LayoutProps {
 }
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
-  const { user, logout } = useAuth();
+  const { logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
 
@@ -26,7 +26,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         <header className={`sticky top-0 z-10 ${theme === 'dark' ? 'bg-gray-900 border-b border-gray-800' : 'bg-white border-b border-gray-200'}`}>
           <div className="flex items-center justify-between px-6 py-4">
             <div className="flex items-center space-x-4">
-              <h1 className="text-xl font-semibold">Microsoft Defender</h1>
+              <h1 className="text-xl font-semibold">Secure Habit</h1>
             </div>
             
             <div className="flex items-center space-x-4">

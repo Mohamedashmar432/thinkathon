@@ -27,50 +27,32 @@ const Landing = () => {
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-32">
         <div className="text-center">
-          <h1 className="text-5xl font-bold mb-6">
-            Security Vulnerability Scanner
+          <h1 className="text-6xl font-bold mb-8 bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+            Build Security as a Habit
           </h1>
-          <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
-            Protect your systems with comprehensive vulnerability scanning and real-time security insights.
+          <p className="text-2xl text-gray-300 mb-12 max-w-3xl mx-auto leading-relaxed">
+            Transform your security posture with intelligent endpoint monitoring, AI-driven recommendations, and comprehensive threat intelligence.
           </p>
-          <div className="flex justify-center space-x-4">
+          <div className="flex justify-center space-x-6">
             <Link
               to="/signup"
-              className="bg-blue-600 text-white px-8 py-3 rounded-lg text-lg font-semibold hover:bg-blue-700 transition"
+              className="bg-blue-600 text-white px-10 py-4 rounded-lg text-xl font-semibold hover:bg-blue-700 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-1"
             >
-              Register
+              Get Started
             </Link>
             <Link
               to="/login"
-              className="bg-gray-800 text-white px-8 py-3 rounded-lg text-lg font-semibold border border-gray-700 hover:bg-gray-700 transition"
+              className="bg-gray-800 text-white px-10 py-4 rounded-lg text-xl font-semibold border border-gray-700 hover:bg-gray-700 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-1"
             >
               Sign In
             </Link>
           </div>
-        </div>
-
-        <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-8">
-          <div className="bg-gray-800/50 backdrop-blur-sm p-6 rounded-lg border border-gray-700">
-            <div className="text-3xl mb-4">🔍</div>
-            <h3 className="text-xl font-semibold mb-2">Comprehensive Scanning</h3>
-            <p className="text-gray-300">
-              Scan your systems for vulnerabilities, outdated software, and security patches.
-            </p>
-          </div>
-          <div className="bg-gray-800/50 backdrop-blur-sm p-6 rounded-lg border border-gray-700">
-            <div className="text-3xl mb-4">📊</div>
-            <h3 className="text-xl font-semibold mb-2">Real-time Dashboard</h3>
-            <p className="text-gray-300">
-              Get instant insights into your security posture with detailed analytics.
-            </p>
-          </div>
-          <div className="bg-gray-800/50 backdrop-blur-sm p-6 rounded-lg border border-gray-700">
-            <div className="text-3xl mb-4">🛡️</div>
-            <h3 className="text-xl font-semibold mb-2">Actionable Recommendations</h3>
-            <p className="text-gray-300">
-              Receive prioritized remediation steps to improve your security score.
+          
+          <div className="mt-16">
+            <p className="text-gray-400 text-lg">
+              Enterprise-grade security platform for modern organizations
             </p>
           </div>
         </div>

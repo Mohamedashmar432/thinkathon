@@ -33,9 +33,18 @@ const UserSchema = new Schema<IUser>({
     type: String,
     required: true,
   },
-  firstName: String,
-  lastName: String,
-  organization: String,
+  firstName: {
+    type: String,
+    default: '',
+  },
+  lastName: {
+    type: String,
+    default: '',
+  },
+  organization: {
+    type: String,
+    default: '',
+  },
   apiKey: {
     type: String,
     unique: true,
@@ -49,14 +58,27 @@ const UserSchema = new Schema<IUser>({
     type: Date,
     default: Date.now,
   },
-  lastLogin: Date,
+  lastLogin: {
+    type: Date,
+  },
   dailyChecklist: {
-    date: Date,
+    date: {
+      type: Date,
+    },
     items: [{
-      id: Number,
-      task: String,
-      completed: Boolean,
-      completedAt: Date,
+      id: {
+        type: Number,
+      },
+      task: {
+        type: String,
+      },
+      completed: {
+        type: Boolean,
+        default: false,
+      },
+      completedAt: {
+        type: Date,
+      },
     }],
   },
 });

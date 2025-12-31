@@ -3,7 +3,9 @@ import Scan from '../models/Scan';
 import { authenticateToken, authenticateApiKey, AuthRequest } from '../middleware/auth';
 import { analyzeVulnerabilities } from '../utils/vulnerabilityAnalyzer';
 import { calculateUserSecureScore, calculateEndpointExposureScore } from '../utils/scoreCalculator';
+import { recommendationEngine } from '../services/recommendationEngine';
 import User from '../models/User';
+import SystemLogger from '../services/systemLogger';
 
 const router = express.Router();
 
@@ -19,10 +21,28 @@ router.post('/submit', authenticateApiKey, async (req: AuthRequest, res: Respons
       patches,
     } = req.body;
 
-    if (!deviceId || !scanTimestamp || !systemInfo || !software) {
+    if (!deviceId || !scanTimestamp || !systemInfo) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields',
+        message: 'Missing required fields: deviceId, scanTimestamp, or systemInfo',
+      });
+    }
+
+    // Validate and log software data
+    const softwareArray = Array.isArray(software) ? software : [];
+    const browserExtensionsArray = Array.isArray(browserExtensions) ? browserExtensions : [];
+    
+    console.log(`Scan submission from device ${deviceId}:`);
+    console.log(`- Software items received: ${softwareArray.length}`);
+    console.log(`- Browser extensions received: ${browserExtensionsArray.length}`);
+    console.log(`- System: ${systemInfo.osName} ${systemInfo.osVersion}`);
+    
+    if (softwareArray.length === 0) {
+      console.warn(`⚠️ WARNING: No software items received from device ${deviceId}`);
+    } else {
+      console.log(`First few software items:`);
+      softwareArray.slice(0, 3).forEach((sw, index) => {
+        console.log(`  ${index + 1}. ${sw.name} v${sw.version} (${sw.publisher})`);
       });
     }
 
@@ -33,8 +53,8 @@ router.post('/submit', authenticateApiKey, async (req: AuthRequest, res: Respons
       deviceId,
       scanTimestamp: new Date(scanTimestamp),
       systemInfo,
-      software,
-      browserExtensions: browserExtensions || [],
+      software: softwareArray,
+      browserExtensions: browserExtensionsArray,
       patches: {
         totalPatches: patches?.totalPatches || 0,
         latestPatchId: patches?.latestPatchId || '',
@@ -44,6 +64,7 @@ router.post('/submit', authenticateApiKey, async (req: AuthRequest, res: Respons
     });
 
     await scan.save();
+    console.log(`✅ Scan saved with ID: ${scan._id}`);
 
     // Analyze vulnerabilities asynchronously
     setTimeout(async () => {
@@ -56,19 +77,69 @@ router.post('/submit', authenticateApiKey, async (req: AuthRequest, res: Respons
 
         const user = await User.findById(req.userId);
         const userScans = await Scan.find({ userId: req.userId });
-        const secureScore = calculateUserSecureScore(userScans, user!);
+        
+        // Calculate secure score with the new scan included
+        const allScans = [...userScans, { ...scan.toObject(), vulnerabilities }];
+        const secureScore = calculateUserSecureScore(allScans as any, user!);
 
-        scan.vulnerabilities = vulnerabilities;
-        scan.endpointExposureScore = endpointExposureScore;
-        scan.secureScore = secureScore;
-        scan.status = 'completed';
-        scan.analyzedAt = new Date();
+        // Ensure scores are valid numbers
+        const validSecureScore = isNaN(secureScore) ? 50 : Math.max(0, Math.min(100, secureScore));
+        const validEndpointScore = isNaN(endpointExposureScore) ? 100 : Math.max(0, Math.min(100, endpointExposureScore));
 
-        await scan.save();
+        // Update scan with analysis results
+        const updatedScan = await Scan.findByIdAndUpdate(scan._id, {
+          vulnerabilities,
+          endpointExposureScore: validEndpointScore,
+          secureScore: validSecureScore,
+          status: 'completed',
+          analyzedAt: new Date()
+        }, { new: true });
+
+        console.log(`Scan analysis completed for device ${deviceId}:`);
+        console.log(`- Software analyzed: ${softwareArray.length}`);
+        console.log(`- Vulnerabilities: ${vulnerabilities.total}`);
+        console.log(`- Secure Score: ${validSecureScore}`);
+        console.log(`- Endpoint Score: ${validEndpointScore}`);
+
+        // Generate security recommendations based on scan results
+        if (updatedScan && user) {
+          try {
+            console.log('Generating security recommendations...');
+            const recommendations = await recommendationEngine.generateRecommendations({
+              scan: updatedScan,
+              user: user
+            });
+
+            // Save recommendations to database
+            await recommendationEngine.saveRecommendations(
+              recommendations,
+              req.userId!,
+              req.user.email,
+              deviceId
+            );
+
+            console.log(`Generated and saved ${recommendations.length} security recommendations`);
+          } catch (recError) {
+            console.error('Error generating recommendations:', recError);
+          }
+        }
+
       } catch (error) {
         console.error('Error analyzing scan:', error);
-        scan.status = 'completed';
-        await scan.save();
+        await Scan.findByIdAndUpdate(scan._id, {
+          status: 'completed',
+          secureScore: 50,
+          endpointExposureScore: 100,
+          vulnerabilities: {
+            total: 0,
+            critical: 0,
+            high: 0,
+            medium: 0,
+            low: 0,
+            exploitable: 0,
+            items: []
+          }
+        });
       }
     }, 2000); // Simulate analysis delay
 
@@ -76,8 +147,11 @@ router.post('/submit', authenticateApiKey, async (req: AuthRequest, res: Respons
       success: true,
       scanId: scan._id,
       message: 'Scan submitted successfully. Analysis in progress.',
+      softwareCount: softwareArray.length,
+      browserExtensionsCount: browserExtensionsArray.length,
     });
   } catch (error: any) {
+    console.error('Error submitting scan:', error);
     res.status(500).json({
       success: false,
       message: error.message || 'Error submitting scan',
@@ -112,6 +186,61 @@ router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
     res.status(500).json({
       success: false,
       message: error.message || 'Error fetching scans',
+    });
+  }
+});
+
+// Get scan status by ID
+router.get('/:scanId/status', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const scan = await Scan.findOne({
+      _id: req.params.scanId,
+      userId: req.userId,
+    }).select('status scanTimestamp analyzedAt vulnerabilities');
+
+    if (!scan) {
+      return res.status(404).json({
+        success: false,
+        message: 'Scan not found',
+      });
+    }
+
+    // Calculate progress based on status and time elapsed
+    let progress = 0;
+    const now = new Date();
+    const scanTime = new Date(scan.scanTimestamp);
+    const elapsedMinutes = (now.getTime() - scanTime.getTime()) / (1000 * 60);
+
+    switch (scan.status) {
+      case 'pending':
+        progress = 0;
+        break;
+      case 'analyzing':
+        // Progress based on time elapsed (max 95% until completed)
+        progress = Math.min(95, elapsedMinutes * 20); // 20% per minute
+        break;
+      case 'completed':
+        progress = 100;
+        break;
+      case 'failed':
+        progress = 0;
+        break;
+      default:
+        progress = 0;
+    }
+
+    res.json({
+      success: true,
+      status: scan.status,
+      progress: Math.round(progress),
+      scanTimestamp: scan.scanTimestamp,
+      analyzedAt: scan.analyzedAt,
+      vulnerabilityCount: scan.vulnerabilities?.total || 0,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error fetching scan status',
     });
   }
 });

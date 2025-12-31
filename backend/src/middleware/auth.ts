@@ -17,21 +17,74 @@ export const authenticateToken = async (
     const token = authHeader && authHeader.split(' ')[1];
 
     if (!token) {
+      console.log('No token provided in request');
       return res.status(401).json({ success: false, message: 'No token provided' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+    if (!process.env.JWT_SECRET) {
+      console.error('JWT_SECRET not configured');
+      return res.status(500).json({ success: false, message: 'Server configuration error' });
+    }
+
+    console.log('Verifying JWT token...');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET) as any;
+    
+    console.log('Finding user by ID:', decoded.userId);
     const user = await User.findById(decoded.userId).select('-password');
 
     if (!user) {
+      console.log('User not found for token:', decoded.userId);
       return res.status(401).json({ success: false, message: 'User not found' });
     }
 
     req.user = user;
     req.userId = user._id.toString();
+    console.log('Authentication successful for user:', user.email);
     next();
-  } catch (error) {
-    return res.status(403).json({ success: false, message: 'Invalid token' });
+  } catch (error: any) {
+    console.error('Token authentication error:', error.message);
+    return res.status(403).json({ 
+      success: false, 
+      message: 'Invalid token',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+export const optionalAuth = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token || !process.env.JWT_SECRET) {
+      // No token provided or JWT secret not configured - continue without auth
+      console.log('No authentication provided, continuing as guest');
+      next();
+      return;
+    }
+
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET) as any;
+      const user = await User.findById(decoded.userId).select('-password');
+
+      if (user) {
+        req.user = user;
+        req.userId = user._id.toString();
+        console.log('Optional authentication successful for user:', user.email);
+      }
+    } catch (error) {
+      // Invalid token - continue without auth
+      console.log('Invalid token provided, continuing as guest');
+    }
+
+    next();
+  } catch (error: any) {
+    console.error('Optional auth error:', error.message);
+    next(); // Continue even if there's an error
   }
 };
 
