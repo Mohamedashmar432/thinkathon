@@ -74,7 +74,7 @@ const adminAuth = async (req: express.Request & { user?: any; userId?: string },
 };
 
 // Get system overview
-router.get('/overview', adminAuth, async (req, res) => {
+router.get('/overview', adminAuth, async (req: express.Request & { user?: any }, res: express.Response) => {
   try {
     await SystemLogger.info('api', 'admin_overview_access', 
       `Admin ${req.user.email} accessed system overview`);
@@ -172,7 +172,7 @@ router.get('/overview', adminAuth, async (req, res) => {
 });
 
 // Get all users (admin view)
-router.get('/users', adminAuth, async (req, res) => {
+router.get('/users', adminAuth, async (req: express.Request & { user?: any }, res: express.Response) => {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
@@ -231,7 +231,7 @@ router.get('/users', adminAuth, async (req, res) => {
 });
 
 // Get all agents (admin view)
-router.get('/agents', adminAuth, async (req, res) => {
+router.get('/agents', adminAuth, async (req: express.Request & { user?: any }, res: express.Response) => {
   try {
     const page = parseInt(req.query.page as string) || 1;
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
@@ -273,7 +273,7 @@ router.get('/agents', adminAuth, async (req, res) => {
 });
 
 // Run system troubleshoot
-router.post('/troubleshoot', adminAuth, async (req, res) => {
+router.post('/troubleshoot', adminAuth, async (req: express.Request & { user?: any }, res: express.Response) => {
   try {
     await SystemLogger.info('api', 'admin_troubleshoot_start', 
       `Admin ${req.user.email} initiated system troubleshoot`);
@@ -307,7 +307,7 @@ router.post('/troubleshoot', adminAuth, async (req, res) => {
 });
 
 // Get system logs
-router.get('/logs', adminAuth, async (req, res) => {
+router.get('/logs', adminAuth, async (req: express.Request & { user?: any }, res: express.Response) => {
   try {
     const filters = {
       level: req.query.level ? (req.query.level as string).split(',') : undefined,
@@ -347,7 +347,7 @@ router.get('/logs', adminAuth, async (req, res) => {
 });
 
 // Get system health metrics
-router.get('/health', adminAuth, async (req, res) => {
+router.get('/health', adminAuth, async (req: express.Request & { user?: any }, res: express.Response) => {
   try {
     const timeRange = parseInt(req.query.timeRange as string) || 24;
     const metrics = await SystemLogger.getHealthMetrics(timeRange);
@@ -372,7 +372,7 @@ router.get('/health', adminAuth, async (req, res) => {
 });
 
 // Get specific user details
-router.get('/users/:userId', adminAuth, async (req, res) => {
+router.get('/users/:userId', adminAuth, async (req: express.Request & { user?: any }, res: express.Response) => {
   try {
     const { userId } = req.params;
 
@@ -415,7 +415,7 @@ router.get('/users/:userId', adminAuth, async (req, res) => {
 });
 
 // System actions
-router.post('/actions/clear-logs', adminAuth, async (req, res) => {
+router.post('/actions/clear-logs', adminAuth, async (req: express.Request & { user?: any }, res: express.Response) => {
   try {
     const { olderThan } = req.body; // Days
     const cutoffDate = new Date(Date.now() - (olderThan || 30) * 24 * 60 * 60 * 1000);
