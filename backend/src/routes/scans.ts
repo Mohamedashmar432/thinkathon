@@ -6,7 +6,6 @@ import { analyzeVulnerabilities } from '../utils/vulnerabilityAnalyzer';
 import { calculateUserSecureScore, calculateEndpointExposureScore } from '../utils/scoreCalculator';
 import { recommendationEngine } from '../services/recommendationEngine';
 import User from '../models/User';
-import SystemLogger from '../services/systemLogger';
 
 const router = express.Router();
 
@@ -137,12 +136,12 @@ router.post('/submit', authenticateApiKey, async (req: AuthRequest, res: Respons
           vulnerabilities,
         } as any);
 
-        const user = await User.findById(req.userId);
+        const currentUser = await User.findById(req.userId);
         const userScans = await Scan.find({ userId: req.userId });
         
         // Calculate secure score with the new scan included
         const allScans = [...userScans, { ...scan.toObject(), vulnerabilities }];
-        const secureScore = calculateUserSecureScore(allScans as any, user!);
+        const secureScore = calculateUserSecureScore(allScans as any, currentUser!);
 
         // Ensure scores are valid numbers
         const validSecureScore = isNaN(secureScore) ? 50 : Math.max(0, Math.min(100, secureScore));
@@ -158,7 +157,7 @@ router.post('/submit', authenticateApiKey, async (req: AuthRequest, res: Respons
         }, { new: true });
 
         // Update user onboarding state and agent status after successful scan
-        const user = await User.findByIdAndUpdate(req.userId, {
+        const updatedUser = await User.findByIdAndUpdate(req.userId, {
           hasScanned: true,
           securityScore: validSecureScore,
           lastScoreUpdate: new Date()
@@ -188,12 +187,12 @@ router.post('/submit', authenticateApiKey, async (req: AuthRequest, res: Respons
         console.log(`- Agent status: ${agent?.status || 'not found'}`);
 
         // Generate security recommendations based on scan results
-        if (updatedScan && user) {
+        if (updatedScan && updatedUser) {
           try {
             console.log('Generating security recommendations...');
             const recommendations = await recommendationEngine.generateRecommendations({
               scan: updatedScan,
-              user: user
+              user: updatedUser
             });
 
             // Save recommendations to database

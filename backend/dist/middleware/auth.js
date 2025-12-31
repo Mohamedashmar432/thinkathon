@@ -77,25 +77,74 @@ const authenticateApiKey = async (req, res, next) => {
         const apiKey = req.headers.authorization?.replace('Bearer ', '') ||
             req.headers['x-api-key'];
         const userEmail = req.headers['x-user-email'];
-        if (!apiKey || !userEmail) {
+        console.log('API Key Authentication Debug:', {
+            hasApiKey: !!apiKey,
+            hasUserEmail: !!userEmail,
+            apiKeyPreview: apiKey ? `${apiKey.substring(0, 8)}...` : 'None',
+            userEmail: userEmail || 'None',
+            headers: {
+                authorization: req.headers.authorization ? 'Present' : 'Missing',
+                'x-api-key': req.headers['x-api-key'] ? 'Present' : 'Missing',
+                'x-user-email': req.headers['x-user-email'] || 'Missing'
+            }
+        });
+        if (!apiKey) {
+            console.error('API key missing in request');
             return res.status(401).json({
                 success: false,
-                message: 'API key and user email required'
+                message: 'API key required. Please provide Authorization header with Bearer token or X-API-Key header.',
+                debug: {
+                    authHeader: !!req.headers.authorization,
+                    apiKeyHeader: !!req.headers['x-api-key']
+                }
             });
         }
+        if (!userEmail) {
+            console.error('User email missing in request');
+            return res.status(401).json({
+                success: false,
+                message: 'User email required. Please provide X-User-Email header.',
+                debug: {
+                    userEmailHeader: !!req.headers['x-user-email']
+                }
+            });
+        }
+        // Find user by API key and email with enhanced validation
         const user = await User_1.default.findOne({
-            apiKey,
-            email: userEmail.toLowerCase()
+            apiKey: apiKey.trim(),
+            email: userEmail.toLowerCase().trim()
         });
         if (!user) {
-            return res.status(401).json({ success: false, message: 'Invalid API credentials' });
+            console.error('Invalid API key or user email:', {
+                apiKeyPreview: `${apiKey.substring(0, 8)}...`,
+                userEmail: userEmail,
+                apiKeyLength: apiKey.length
+            });
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid API key or user email. Please re-download the agent from your dashboard.',
+                debug: {
+                    apiKeyFormat: apiKey.length === 32 ? 'Valid length' : `Invalid length: ${apiKey.length}`,
+                    emailFormat: userEmail.includes('@') ? 'Valid format' : 'Invalid format'
+                }
+            });
         }
+        console.log('✅ API key authentication successful:', {
+            userId: user._id,
+            userEmail: user.email,
+            apiKeyValid: true
+        });
         req.user = user;
         req.userId = user._id.toString();
         next();
     }
     catch (error) {
-        return res.status(403).json({ success: false, message: 'Authentication failed' });
+        console.error('API key authentication error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Authentication error',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 };
 exports.authenticateApiKey = authenticateApiKey;

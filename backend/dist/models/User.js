@@ -74,6 +74,20 @@ const UserSchema = new mongoose_1.Schema({
     lastLogin: {
         type: Date,
     },
+    // Onboarding state fields
+    hasScanned: {
+        type: Boolean,
+        default: false,
+    },
+    securityScore: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 100,
+    },
+    lastScoreUpdate: {
+        type: Date,
+    },
     dailyChecklist: {
         date: {
             type: Date,

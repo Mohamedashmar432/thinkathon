@@ -380,24 +380,54 @@ router.post('/register', auth_1.authenticateApiKey, async (req, res) => {
                 message: 'Device ID is required',
             });
         }
-        // Update or create agent record
-        const agent = await Agent_1.default.findOneAndUpdate({ userId: req.userId, deviceId }, {
-            deviceName: deviceName || deviceId,
-            version: version || '1.0.0',
-            status: status || 'active',
-            lastHeartbeat: new Date(),
-            lastConnected: new Date(),
-            systemInfo: systemInfo || {},
-        }, {
-            upsert: true,
-            new: true,
-            setDefaultsOnInsert: true
+        console.log(`Agent registration request: ${deviceId} for user ${req.user.email}`);
+        // Find existing agent or create new one
+        let agent = await Agent_1.default.findOne({ userId: req.userId, deviceId });
+        if (agent) {
+            // Update existing agent - transition to 'connected' state
+            const previousStatus = agent.status;
+            agent.deviceName = deviceName || agent.deviceName || deviceId;
+            agent.version = version || agent.version || '1.0.0';
+            agent.lastHeartbeat = new Date();
+            agent.lastConnected = new Date();
+            agent.systemInfo = { ...agent.systemInfo, ...systemInfo };
+            // State machine: installed → connected (when agent registers after download)
+            if (agent.status === 'installed') {
+                agent.status = 'connected';
+                console.log(`Agent state transition: ${previousStatus} → connected`);
+            }
+            await agent.save();
+            console.log(`Agent updated: ${deviceId} (${previousStatus} → ${agent.status})`);
+        }
+        else {
+            // Create new agent in 'connected' state (registration implies connection)
+            agent = new Agent_1.default({
+                userId: req.userId,
+                deviceId,
+                deviceName: deviceName || deviceId,
+                version: version || '1.0.0',
+                status: 'connected', // Agent is connected when it registers
+                lastHeartbeat: new Date(),
+                lastConnected: new Date(),
+                systemInfo: systemInfo || {},
+                firstScanCompleted: false,
+            });
+            await agent.save();
+            console.log(`New agent created: ${deviceId} (status: connected)`);
+        }
+        console.log(`Agent registration response data:`, {
+            agentId: agent._id,
+            status: agent.status,
+            deviceId: agent.deviceId,
+            firstScanCompleted: agent.firstScanCompleted
         });
-        console.log(`Agent registered: ${deviceId} for user ${req.user.email}`);
         res.json({
             success: true,
             message: 'Agent registered successfully',
-            agentId: agent._id,
+            agentId: agent._id.toString(),
+            status: agent.status,
+            deviceId: agent.deviceId,
+            firstScanCompleted: agent.firstScanCompleted || false,
         });
     }
     catch (error) {
@@ -428,7 +458,9 @@ router.post('/download-installer', auth_1.authenticateToken, async (req, res) =>
                 message: 'Invalid or missing OS parameter. Supported: windows, linux, macos'
             });
         }
-        const apiEndpoint = `${process.env.API_BASE_URL}/api/scan/submit`;
+        const apiEndpoint = process.env.NODE_ENV === 'production'
+            ? 'https://secure-habit-backend.onrender.com/api/scan/submit'
+            : `${process.env.API_BASE_URL || 'http://localhost:5000'}/api/scan/submit`;
         if (os === 'windows') {
             // Windows agent (existing implementation)
             const agentTemplatePath = path_1.default.join(__dirname, '../../templates/secure_habit_agent.ps1');
@@ -506,13 +538,25 @@ router.post('/:deviceId/deactivate', auth_1.authenticateToken, async (req, res) 
 router.get('/stats/overview', auth_1.authenticateToken, async (req, res) => {
     try {
         const totalAgents = await Agent_1.default.countDocuments({ userId: req.userId });
-        // Count active agents (online in last 5 minutes)
+        // Count active agents (completed first scan and connected recently)
         const activeAgents = await Agent_1.default.countDocuments({
             userId: req.userId,
             status: 'active',
-            lastHeartbeat: { $gte: new Date(Date.now() - 5 * 60 * 1000) }
+            firstScanCompleted: true,
+            lastHeartbeat: { $gte: new Date(Date.now() - 5 * 60 * 1000) } // Active in last 5 minutes
         });
-        // Count inactive agents (offline or error status)
+        // Count connected agents (registered but not yet scanned)
+        const connectedAgents = await Agent_1.default.countDocuments({
+            userId: req.userId,
+            status: 'connected',
+            firstScanCompleted: false
+        });
+        // Count installed agents (downloaded but not yet registered)
+        const installedAgents = await Agent_1.default.countDocuments({
+            userId: req.userId,
+            status: 'installed'
+        });
+        // Count inactive agents (offline, error, or old active agents)
         const inactiveAgents = await Agent_1.default.countDocuments({
             userId: req.userId,
             $or: [
@@ -529,12 +573,14 @@ router.get('/stats/overview', auth_1.authenticateToken, async (req, res) => {
             userId: req.userId,
             status: 'uninstalled'
         });
-        console.log(`Agent stats for user ${req.userId}: total=${totalAgents}, active=${activeAgents}, inactive=${inactiveAgents}, uninstalled=${uninstalledAgents}`);
+        console.log(`Agent stats for user ${req.userId}: total=${totalAgents}, active=${activeAgents}, connected=${connectedAgents}, installed=${installedAgents}, inactive=${inactiveAgents}, uninstalled=${uninstalledAgents}`);
         res.json({
             success: true,
             stats: {
                 total: totalAgents,
                 active: activeAgents,
+                connected: connectedAgents,
+                installed: installedAgents,
                 inactive: inactiveAgents,
                 uninstalled: uninstalledAgents
             }

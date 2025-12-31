@@ -56,6 +56,8 @@ const organizationScore_1 = __importDefault(require("./routes/organizationScore"
 const userRecommendations_1 = __importDefault(require("./routes/userRecommendations"));
 const aiGateway_1 = __importDefault(require("./routes/aiGateway"));
 const scheduledScans_1 = __importDefault(require("./routes/scheduledScans"));
+const threatFeed_1 = __importDefault(require("./routes/threatFeed"));
+const admin_1 = __importDefault(require("./routes/admin"));
 // Import models to ensure they're registered with Mongoose
 require("./models/User");
 require("./models/Scan");
@@ -63,6 +65,8 @@ require("./models/Agent");
 require("./models/Recommendation");
 require("./models/ScheduledScan");
 require("./models/LLMCache");
+require("./models/ThreatIntelItem");
+require("./models/ThreatCorrelation");
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 5000;
 // Validate required environment variables
@@ -79,7 +83,11 @@ app.use((0, cors_1.default)({
     origin: [
         'http://localhost:5173',
         'http://127.0.0.1:5173',
-        process.env.FRONTEND_URL || 'http://localhost:5173'
+        'https://securehabit.vercel.app',
+        'https://securehabit.vercel.app/',
+        process.env.FRONTEND_URL || 'http://localhost:5173',
+        // Add Vercel preview URLs
+        /^https:\/\/.*\.vercel\.app$/
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -91,7 +99,7 @@ app.use(express_1.default.urlencoded({ extended: true }));
 const isDevelopment = process.env.NODE_ENV === 'development';
 const authLimiter = (0, express_rate_limit_1.default)({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: isDevelopment ? 100 : 10, // 100 requests in dev, 10 in production
+    max: isDevelopment ? 100 : 20, // 100 requests in dev, 20 in production
     message: {
         success: false,
         message: 'Too many authentication attempts, please try again later.',
@@ -105,7 +113,7 @@ const authLimiter = (0, express_rate_limit_1.default)({
 });
 const scanLimiter = (0, express_rate_limit_1.default)({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: isDevelopment ? 50 : 10, // 50 scans in dev, 10 in production
+    max: isDevelopment ? 50 : 15, // 50 scans in dev, 15 in production
     message: {
         success: false,
         message: 'Too many scan submissions, please try again later.',
@@ -116,7 +124,18 @@ const scanLimiter = (0, express_rate_limit_1.default)({
 // General API rate limiter (more lenient)
 const apiLimiter = (0, express_rate_limit_1.default)({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: isDevelopment ? 200 : 50, // 200 requests in dev, 50 in production
+    max: isDevelopment ? 200 : 100, // 200 requests in dev, 100 in production
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+// Threat feed rate limiter (very lenient for real-time updates)
+const threatFeedLimiter = (0, express_rate_limit_1.default)({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: isDevelopment ? 500 : 200, // 500 requests in dev, 200 in production
+    message: {
+        success: false,
+        message: 'Too many threat feed requests, please try again later.',
+    },
     standardHeaders: true,
     legacyHeaders: false,
 });
@@ -132,14 +151,52 @@ app.use('/api/organization-score', apiLimiter, organizationScore_1.default);
 app.use('/api/user-recommendations', apiLimiter, userRecommendations_1.default);
 app.use('/api/ai-gateway', apiLimiter, aiGateway_1.default);
 app.use('/api/scheduled-scans', apiLimiter, scheduledScans_1.default);
-// Health check
+app.use('/api/threat-feed', threatFeedLimiter, threatFeed_1.default);
+app.use('/api/admin', apiLimiter, admin_1.default);
+// Health check endpoint with detailed status
 app.get('/health', (req, res) => {
+    const uptime = process.uptime();
+    const memoryUsage = process.memoryUsage();
     res.json({
         status: 'ok',
+        service: 'secure-habit-backend',
+        version: '1.0.0',
         timestamp: new Date().toISOString(),
+        uptime: {
+            seconds: Math.floor(uptime),
+            human: `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${Math.floor(uptime % 60)}s`
+        },
         environment: process.env.NODE_ENV || 'development',
-        mongodb: mongoose_1.default.connection.readyState === 1 ? 'connected' : 'disconnected'
+        mongodb: {
+            status: mongoose_1.default.connection.readyState === 1 ? 'connected' : 'disconnected',
+            readyState: mongoose_1.default.connection.readyState,
+            host: mongoose_1.default.connection.host || 'unknown'
+        },
+        memory: {
+            used: Math.round(memoryUsage.heapUsed / 1024 / 1024),
+            total: Math.round(memoryUsage.heapTotal / 1024 / 1024),
+            external: Math.round(memoryUsage.external / 1024 / 1024),
+            unit: 'MB'
+        },
+        keepAlive: {
+            enabled: process.env.NODE_ENV === 'production',
+            lastPing: new Date().toISOString()
+        }
     });
+});
+// Additional health endpoints for monitoring
+app.get('/api/health', (req, res) => {
+    res.redirect(301, '/health');
+});
+app.get('/ping', (req, res) => {
+    res.json({
+        pong: true,
+        timestamp: new Date().toISOString(),
+        server: 'secure-habit-backend'
+    });
+});
+app.get('/api/ping', (req, res) => {
+    res.redirect(301, '/ping');
 });
 // Test endpoint for debugging
 app.get('/api/test', (req, res) => {
@@ -170,6 +227,9 @@ mongoose_1.default
     // Initialize scheduled scan service
     console.log('📅 Initializing scheduled scan service...');
     // Service is already initialized as singleton in the import
+    // Initialize threat intelligence service
+    console.log('🔍 Initializing threat intelligence service...');
+    // Service is already initialized as singleton in the import
 })
     .catch((error) => {
     console.error('❌ MongoDB connection error:', error);
@@ -184,4 +244,52 @@ app.use((err, req, res, next) => {
         message: err.message || 'Internal server error',
     });
 });
+// Keep-alive system to prevent Render free tier from spinning down
+if (process.env.NODE_ENV === 'production') {
+    console.log('🔄 Initializing keep-alive system for production...');
+    // Self-ping every 14 minutes (Render spins down after 15 minutes of inactivity)
+    const keepAliveInterval = setInterval(async () => {
+        try {
+            const baseUrl = process.env.RENDER_EXTERNAL_URL || 'https://secure-habit-backend.onrender.com';
+            // Primary health check
+            const healthResponse = await fetch(`${baseUrl}/health`, {
+                method: 'GET',
+                headers: { 'User-Agent': 'KeepAlive-Internal/1.0' }
+            });
+            if (healthResponse.ok) {
+                console.log(`✅ Keep-alive ping successful: ${healthResponse.status} at ${new Date().toISOString()}`);
+                // Additional warmup requests to keep different services active
+                try {
+                    await fetch(`${baseUrl}/api/dashboard/stats`, {
+                        method: 'GET',
+                        headers: { 'User-Agent': 'KeepAlive-Internal/1.0' }
+                    });
+                    await fetch(`${baseUrl}/api/agent/stats/overview`, {
+                        method: 'GET',
+                        headers: { 'User-Agent': 'KeepAlive-Internal/1.0' }
+                    });
+                }
+                catch (warmupError) {
+                    // Warmup failures are non-critical
+                    console.log('Warmup requests completed with some failures');
+                }
+            }
+            else {
+                console.log(`⚠️ Keep-alive ping returned: ${healthResponse.status}`);
+            }
+        }
+        catch (error) {
+            console.log(`❌ Keep-alive ping failed: ${error.message}`);
+        }
+    }, 14 * 60 * 1000); // Every 14 minutes
+    // Cleanup on process termination
+    process.on('SIGTERM', () => {
+        console.log('🛑 Cleaning up keep-alive system...');
+        clearInterval(keepAliveInterval);
+    });
+    process.on('SIGINT', () => {
+        console.log('🛑 Cleaning up keep-alive system...');
+        clearInterval(keepAliveInterval);
+    });
+}
 exports.default = app;

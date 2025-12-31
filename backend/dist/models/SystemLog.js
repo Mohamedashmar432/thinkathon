@@ -34,50 +34,46 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 const mongoose_1 = __importStar(require("mongoose"));
-const AgentSchema = new mongoose_1.Schema({
-    userId: {
-        type: mongoose_1.Schema.Types.ObjectId,
-        ref: 'User',
-        required: true,
-    },
-    deviceId: {
+const SystemLogSchema = new mongoose_1.Schema({
+    timestamp: { type: Date, default: Date.now, index: true },
+    level: {
         type: String,
+        enum: ['error', 'warn', 'info', 'debug'],
         required: true,
+        index: true
     },
-    deviceName: String,
-    status: {
+    component: {
         type: String,
-        enum: ['installed', 'connected', 'scanning', 'completed', 'active', 'inactive', 'uninstalled', 'error'],
-        default: 'installed', // Agent starts as installed, becomes active after first successful scan
+        enum: ['agent', 'scan', 'ai', 'ingestion', 'scheduler', 'api', 'auth', 'correlation', 'ui'],
+        required: true,
+        index: true
     },
-    version: String,
-    installedAt: {
-        type: Date,
-        default: Date.now,
+    action: { type: String, required: true, index: true },
+    message: { type: String, required: true },
+    userId: { type: String, index: true },
+    userEmail: { type: String, index: true },
+    deviceId: { type: String, index: true },
+    scanId: { type: String, index: true },
+    cveId: { type: String, index: true },
+    correlationId: { type: String, index: true },
+    metadata: { type: mongoose_1.Schema.Types.Mixed },
+    error: {
+        name: String,
+        message: String,
+        stack: String,
+        code: String
     },
-    lastHeartbeat: Date,
-    lastConnected: Date,
-    lastScan: Date,
-    firstScanCompleted: {
-        type: Boolean,
-        default: false,
-    },
-    uninstalledAt: Date,
-    commandHistory: [{
-            command: String,
-            success: Boolean,
-            result: String,
-            timestamp: Date,
-        }],
-    systemInfo: {
-        osName: String,
-        osVersion: String,
-        architecture: String,
-        manufacturer: String,
-        model: String,
-    },
+    duration: { type: Number },
+    success: { type: Boolean, required: true, index: true },
+    ipAddress: { type: String },
+    userAgent: { type: String }
 });
-AgentSchema.index({ userId: 1, deviceId: 1 }, { unique: true });
-AgentSchema.index({ userId: 1, status: 1 });
-AgentSchema.index({ lastHeartbeat: 1 });
-exports.default = mongoose_1.default.model('Agent', AgentSchema);
+// Compound indexes for efficient queries
+SystemLogSchema.index({ timestamp: -1, level: 1 });
+SystemLogSchema.index({ component: 1, timestamp: -1 });
+SystemLogSchema.index({ success: 1, timestamp: -1 });
+SystemLogSchema.index({ userId: 1, timestamp: -1 });
+SystemLogSchema.index({ deviceId: 1, timestamp: -1 });
+// TTL index - logs expire after 30 days
+SystemLogSchema.index({ timestamp: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
+exports.default = mongoose_1.default.model('SystemLog', SystemLogSchema);

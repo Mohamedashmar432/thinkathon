@@ -7,6 +7,7 @@ const express_1 = __importDefault(require("express"));
 const auth_1 = require("../middleware/auth");
 const Scan_1 = __importDefault(require("../models/Scan"));
 const User_1 = __importDefault(require("../models/User"));
+const Recommendation_1 = __importDefault(require("../models/Recommendation"));
 const llmService_1 = __importDefault(require("../services/llmService"));
 const router = express_1.default.Router();
 // Microsoft Defender recommendations (filtered for user-actionable only)
@@ -199,7 +200,7 @@ router.put('/:recommendationId/status', auth_1.authenticateToken, async (req, re
             });
         }
         // Update recommendation status directly
-        const recommendation = await Recommendation.findOneAndUpdate({
+        const recommendation = await Recommendation_1.default.findOneAndUpdate({
             userId: req.userId,
             recommendationId: recommendationId
         }, {
