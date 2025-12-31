@@ -556,8 +556,8 @@ router.post('/download-installer', authenticateToken, async (req: AuthRequest, r
 
     if (os === 'windows') {
       // CRITICAL FIX: Use fresh production agent instead of template
-      // Check if fresh production agent exists for this user
-      const freshAgentPath = path.join(process.cwd(), 'FRESH_SecureHabitAgent_PRODUCTION.bat');
+      // Check if fresh production agent exists in templates directory
+      const freshAgentPath = path.join(__dirname, '../../templates/FRESH_SecureHabitAgent_PRODUCTION.bat');
       
       if (fs.existsSync(freshAgentPath)) {
         console.log(`🚀 Serving fresh production agent for user ${user.email}`);
