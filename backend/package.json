@@ -21,6 +21,7 @@
     "@types/node-cron": "^3.0.11",
     "@types/ws": "^8.18.1",
     "archiver": "^7.0.1",
+    "axios": "^1.13.2",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
     "crypto": "^1.0.1",

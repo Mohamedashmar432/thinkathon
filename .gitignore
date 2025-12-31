@@ -52,6 +52,7 @@ create_*.js
 systemscan.ps1
 validate_*.ps1
 test_*.ps1
+fix-line-endings.bat
 
 # Documentation files (except README.md)
 *.md

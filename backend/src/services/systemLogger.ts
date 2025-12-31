@@ -331,7 +331,7 @@ class SystemLogger {
         .sort({ timestamp: -1 })
         .limit(limit)
         .skip(skip)
-        .lean(),
+        .lean() as Promise<ISystemLog[]>,
       SystemLog.countDocuments(query)
     ]);
 

@@ -2,8 +2,6 @@ import express from 'express';
 import SystemLogger from '../services/systemLogger';
 import troubleshootService from '../services/troubleshootService';
 import User from '../models/User';
-import troubleshootService from '../services/troubleshootService';
-import User from '../models/User';
 import Agent from '../models/Agent';
 import Scan from '../models/Scan';
 import ThreatIntelItem from '../models/ThreatIntelItem';
@@ -14,7 +12,7 @@ import Recommendation from '../models/Recommendation';
 const router = express.Router();
 
 // Admin authentication middleware
-const adminAuth = async (req: any, res: any, next: any) => {
+const adminAuth = async (req: express.Request & { user?: any; userId?: string }, res: express.Response, next: express.NextFunction) => {
   try {
     const authHeader = req.headers.authorization;
     const token = authHeader && authHeader.split(' ')[1];
