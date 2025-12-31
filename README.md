@@ -1,209 +1,396 @@
-# Thinkathon - Security Vulnerability Scanner
+# 🛡️ Secure Habit - Security Vulnerability Management Platform
 
-A comprehensive web application for scanning and managing security vulnerabilities across systems.
+A comprehensive, AI-powered security vulnerability scanning and management platform that helps organizations and individuals identify, track, and remediate security vulnerabilities across their devices and software inventory.
 
-## Project Structure
+#### app - https://securehabit.vercel.app/
+
+#### repo - https://github.com/Mohamedashmar432/thinkathon
+
+## 🎯 Problem Statement
+
+Organizations and individual users lack visibility into their security vulnerabilities and struggle to prioritize remediation efforts. Secure Habit addresses this by providing:
+
+- **Automated vulnerability discovery** across all devices and software
+- **AI-powered prioritization** to focus on highest-impact security actions
+- **Real-time threat intelligence** to stay informed of emerging vulnerabilities
+- **Step-by-step remediation guidance** for fixing security issues
+- **Continuous monitoring** through scheduled scans
+- **Cross-platform support** for Windows, Linux, and macOS
+
+## 🏗️ Architecture Overview
+
+### System Components
 
 ```
-thinkathon/
-├── frontend/          # React + Vite + Tailwind CSS
-├── backend/          # Node.js + Express + MongoDB
-└── shared/           # Shared TypeScript types
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Frontend      │    │    Backend      │    │   Database      │
+│   (React)       │◄──►│   (Node.js)     │◄──►│   (MongoDB)     │
+│   Vercel        │    │   Render        │    │   Atlas         │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         │              ┌─────────────────┐              │
+         │              │  AI Gateway     │              │
+         └──────────────►│  Gemini/Groq   │◄─────────────┘
+                        │  OpenAI         │
+                        └─────────────────┘
+                                 │
+                        ┌─────────────────┐
+                        │ Threat Intel    │
+                        │ NVD/CISA KEV    │
+                        └─────────────────┘
 ```
 
-## Tech Stack
+### Technology Stack
 
-### Frontend
+**Frontend**
 - React 18 with TypeScript
-- Vite as build tool
-- Tailwind CSS for styling
-- React Router for navigation
-- Axios for API calls
-- Recharts for data visualization
+- Vite (build tool)
+- Tailwind CSS (styling)
+- React Router (navigation)
+- Axios (HTTP client)
+- Recharts (data visualization)
 
-### Backend
+**Backend**
 - Node.js with Express
-- MongoDB with Mongoose
-- JWT for authentication
-- bcrypt for password hashing
-- express-rate-limit for API protection
+- MongoDB with Mongoose ODM
+- TypeScript
+- JWT authentication
+- WebSocket (real-time communication)
+- Google Generative AI (Gemini)
 
-## Setup Instructions
+
+**Infrastructure**
+- Frontend: Vercel
+- Backend: Render
+- Database: MongoDB Atlas
+
+
+## 🚀 Features
+
+### 1. 🤖 Cross-Platform Agent System
+- **Multi-OS Support**: Windows (PowerShell/Batch), Linux (Bash), macOS (Bash)
+- **Agent Lifecycle**: Download → Install → Register → Heartbeat → Scan → Uninstall
+- **Real-time Communication**: WebSocket-based agent-to-server communication
+- **Remote Commands**: Scan initiation, health checks, software uninstall
+- **Status Tracking**: Installed, Connected, Scanning, Active, Inactive, Uninstalled
+
+### 2. 🔍 Comprehensive Vulnerability Scanning
+- **System Information**: OS, architecture, manufacturer, model detection
+- **Software Inventory**: Installed applications with versions and publishers
+- **Browser Extensions**: Chrome, Firefox, Edge extension detection
+- **Patch Status**: Windows update tracking
+- **Vulnerability Analysis**: CVE matching, CVSS scoring, exploitability assessment
+- **Scan Types**: Quick scan, Full scan, Health check
+
+### 3. 📊 Security Scoring System
+- **User Secure Score** (0-100): Overall security posture
+- **Endpoint Exposure Score** (0-100): Network exposure risk
+- **Vulnerability Metrics**: Critical, High, Medium, Low severity counts
+- **Exploitable Vulnerabilities**: Tracks actively exploitable CVEs
+- **Historical Trends**: Score tracking over time
+
+### 4. 🧠 AI-Powered Recommendations
+- **Personalized Suggestions**: Based on user's specific vulnerabilities and software
+- **Multi-Provider AI**: Gemini API with Groq and OpenAI fallback
+- **Template-Based**: Pre-defined security best practices
+- **Priority Levels**: High, Medium, Low based on risk impact
+- **Time Estimates**: Estimated remediation time for each recommendation
+- **Risk Reduction Metrics**: Expected security improvement from each action
+
+### 5. 🌐 Real-Time Threat Intelligence
+- **Live Threat Feeds**: NVD (National Vulnerability Database) and CISA KEV
+- **Hourly Updates**: Automatic threat database ingestion
+- **Threat Correlation**: Matches threats to user's specific devices
+- **Risk Scoring**: CVSS-based impact calculation
+- **Action Recommendations**: Specific remediation steps for each threat
+- **Exploited Vulnerability Tracking**: Identifies actively exploited CVEs
+
+### 6. 📈 Dashboard & Analytics
+- **Security Overview**: Current scores and vulnerability counts
+- **Exposure Timeline**: Historical security score trends
+- **Top Vulnerable Endpoints**: Network endpoints with most vulnerabilities
+- **Top Vulnerable Software**: Software with most CVEs across devices
+- **Vulnerability Insights**: Breakdown by severity and category
+- **Daily Security Checklist**: Gamified security tasks
+
+### 7. ⏰ Scheduled Scans
+- **Recurring Scans**: Cron-based scheduling
+- **Automatic Execution**: Runs without user intervention
+- **Result Processing**: Automatic analysis and recommendation generation
+
+### 8. 🛠️ Admin Portal
+- **System Troubleshooting**: Diagnostic tools
+- **System Logs**: Event and error tracking
+- **User Management**: Administrative functions
+
+## 📡 API Endpoints
+
+### Authentication (`/api/auth`)
+```
+POST /signup          - User registration
+POST /login           - User login
+GET  /me              - Get current user profile
+```
+
+### Scanner (`/api/scanner`)
+```
+POST /generate        - Generate personalized scanner script
+GET  /credentials     - Get API credentials for agents
+```
+
+### Scans (`/api/scan`)
+```
+POST /submit          - Submit scan data (API key auth)
+GET  /scans           - Get all user scans
+GET  /scans/:scanId   - Get detailed scan results
+```
+
+### Dashboard (`/api/dashboard`)
+```
+GET /stats                          - Dashboard statistics
+GET /endpoint-exposure-timeline     - Security score timeline
+GET /top-endpoints                  - Top vulnerable endpoints
+GET /top-vulnerable-software        - Top vulnerable software
+GET /vulnerability-insights         - Vulnerability breakdown
+GET /top-remediation-activities     - Prioritized remediation tasks
+GET /daily-checklist               - Daily security checklist
+PUT /daily-checklist/:itemId       - Update checklist item
+```
+
+### Agents (`/api/agent`)
+```
+POST /register                      - Register new agent
+POST /:deviceId/heartbeat          - Agent heartbeat
+GET  /                             - Get all user agents
+GET  /:deviceId                    - Get agent details
+POST /:deviceId/quick-scan         - Initiate quick scan
+POST /:deviceId/full-scan          - Initiate full scan
+POST /:deviceId/uninstall          - Uninstall software
+POST /:deviceId/health-check       - Agent health check
+POST /:deviceId/uninstall-agent    - Uninstall agent
+POST /download-installer           - Download agent installer
+GET  /stats/overview               - Agent statistics
+```
+
+### Recommendations (`/api/recommendations`)
+```
+GET /                 - Get personalized security recommendations
+```
+
+### Threat Intelligence (`/api/threat-feed`)
+```
+GET /                 - Get real-time threat intelligence data
+```
+
+### Scheduled Scans (`/api/scheduled-scans`)
+```
+GET    /              - Get scheduled scans
+POST   /              - Create scheduled scan
+PUT    /:id           - Update scheduled scan
+DELETE /:id           - Delete scheduled scan
+```
+
+### AI Gateway (`/api/ai-gateway`)
+```
+POST /generate        - Generate AI-powered responses
+GET  /health          - AI Gateway health status
+GET  /stats           - AI Gateway statistics
+```
+
+### Admin (`/api/admin`)
+```
+GET /troubleshoot     - System diagnostic information
+GET /logs             - System logs
+```
+
+## 🛠️ Setup & Installation
 
 ### Prerequisites
-- Node.js 18+ installed
-- MongoDB installed and running (or MongoDB Atlas connection string)
-- npm or yarn package manager
+- Node.js 18+ 
+- MongoDB (local or Atlas)
+- npm or yarn
 
 ### Backend Setup
 
-1. Navigate to backend directory:
+1. **Clone and navigate to backend**
 ```bash
 cd backend
-```
-
-2. Install dependencies:
-```bash
 npm install
 ```
 
-3. Create `.env` file in backend directory:
+2. **Environment Configuration**
+```bash
+cp .env.production.example app.env
+# Edit app.env with your configuration
+```
+
+3. **Required Environment Variables**
 ```env
-PORT=5000
-MONGODB_URI=mongodb://localhost:27017/thinkathon
-JWT_SECRET=your-super-secret-jwt-key-change-in-production
-SECRET_SALT=your-secret-salt-for-api-keys-change-in-production
-API_BASE_URL=http://localhost:5000
 NODE_ENV=development
+PORT=5000
+MONGODB_URI=mongodb://localhost:27017/securehabit
+JWT_SECRET=your-super-secure-jwt-secret-minimum-32-characters
+GEMINI_API_KEY_1=your-gemini-api-key
+GROQ_API_KEY=your-groq-api-key (optional)
+OPENAI_API_KEY=your-openai-api-key (optional)
 FRONTEND_URL=http://localhost:5173
 ```
 
-4. Start MongoDB (if running locally):
-```bash
-# On Windows
-net start MongoDB
-
-# On macOS/Linux
-mongod
-```
-
-5. Seed the database (optional):
-```bash
-npm run seed
-```
-
-6. Start the backend server:
+4. **Start Backend**
 ```bash
 npm run dev
 ```
-
-The backend will run on `http://localhost:5000`
 
 ### Frontend Setup
 
-1. Navigate to frontend directory:
+1. **Navigate to frontend**
 ```bash
 cd frontend
-```
-
-2. Install dependencies:
-```bash
 npm install
 ```
 
-3. Start the development server:
+2. **Environment Configuration**
+```bash
+cp .env.production.example .env.local
+# Edit .env.local with your backend URL
+```
+
+3. **Start Frontend**
 ```bash
 npm run dev
 ```
 
-The frontend will run on `http://localhost:5173`
+### Database Setup
 
-## Demo Accounts
+**Local MongoDB**
+```bash
+# Install MongoDB locally or use Docker
+docker run -d -p 27017:27017 --name mongodb mongo:latest
+```
 
-After running the seed script, you can use these accounts:
+**MongoDB Atlas (Recommended)**
+1. Create account at [MongoDB Atlas](https://www.mongodb.com/atlas)
+2. Create cluster (M0 free tier available)
+3. Create database user
+4. Configure network access (0.0.0.0/0 for development)
+5. Get connection string
 
-- **demo@test.com** / password: `demo123`
-- **john@thinkbridge.com** / password: `demo123`
-- **sarah@thinkbridge.com** / password: `demo123`
+## 🚀 Deployment
 
-## Features
+### Production Deployment
 
-### Authentication
-- User signup and login
-- JWT-based authentication
-- Protected routes
+**Frontend (Vercel)**
+1. Connect GitHub repository to Vercel
+2. Set environment variables in Vercel dashboard
+3. Deploy automatically on push to main branch
 
-### Scanner
-- Generate personalized PowerShell scanner script
-- Download scanner with embedded API credentials
-- Submit scan data via API
+**Backend (Render)**
+1. Connect GitHub repository to Render
+2. Configure environment variables
+3. Set build command: `npm run build`
+4. Set start command: `npm start`
 
-### Dashboard
-- Secure score visualization
-- Organization score (for @thinkbridge.com users)
-- Endpoint exposure timeline
-- Top vulnerable endpoints
-- Top vulnerable software
-- Vulnerability insights with charts
-- Remediation activities
-- Daily security checklist
+**Database (MongoDB Atlas)**
+1. Create production cluster
+2. Configure security and network access
+3. Update connection string in production environment
 
-### Scans Management
-- View all scans
-- Filter by device
-- Detailed scan view with vulnerabilities
-- Software inventory
-- Browser extensions list
 
-### Settings
-- User profile management
-- API credentials display
-- Organization settings (for @thinkbridge.com users)
+## 🔧 Development  ->  80 % vibe coding 
 
-## API Endpoints
+### Project Structure
+```
+thinkathon/
+├── frontend/                 # React frontend
+│   ├── src/
+│   │   ├── components/      # Reusable components
+│   │   ├── pages/          # Page components
+│   │   ├── contexts/       # React contexts
+│   │   └── utils/          # Utility functions
+│   └── package.json
+├── backend/                 # Node.js backend
+│   ├── src/
+│   │   ├── models/         # MongoDB models
+│   │   ├── routes/         # API routes
+│   │   ├── services/       # Business logic
+│   │   ├── middleware/     # Express middleware
+│   │   ├── utils/          # Utility functions
+│   │   └── templates/      # Agent templates
+│   └── package.json
+├── shared/                  # Shared TypeScript types
+└── package.json
+```
 
-### Authentication
-- `POST /api/auth/signup` - Create new user
-- `POST /api/auth/login` - Login user
-- `GET /api/auth/me` - Get current user
+### Key Services
 
-### Scanner
-- `POST /api/scanner/generate` - Generate scanner script
-- `GET /api/scanner/credentials` - Get API credentials
+**AI Gateway** (`backend/src/services/ai/aiGateway.ts`)
+- Multi-provider AI request handling
+- Automatic failover (Gemini → Groq → OpenAI)
+- Rate limit management
+- Request statistics
 
-### Scans
-- `POST /api/scan/submit` - Submit scan data (API key auth)
-- `GET /api/scans` - Get all scans
-- `GET /api/scans/:scanId` - Get scan details
+**Threat Intelligence** (`backend/src/services/threatIntelService.ts`)
+- NVD and CISA KEV data ingestion
+- Threat correlation with user devices
+- Risk scoring and recommendations
 
-### Dashboard
-- `GET /api/dashboard/stats` - Get dashboard statistics
-- `GET /api/dashboard/endpoint-exposure-timeline` - Get exposure timeline
-- `GET /api/dashboard/top-endpoints` - Get top vulnerable endpoints
-- `GET /api/dashboard/top-vulnerable-software` - Get top vulnerable software
-- `GET /api/dashboard/vulnerability-insights` - Get vulnerability insights
-- `GET /api/dashboard/top-remediation-activities` - Get remediation activities
-- `GET /api/dashboard/daily-checklist` - Get daily checklist
-- `PUT /api/dashboard/daily-checklist/:itemId` - Update checklist item
+**Recommendation Engine** (`backend/src/services/recommendationEngine.ts`)
+- AI-powered security recommendations
+- Template-based recommendations
+- Priority scoring and deduplication
 
-### Organization
-- `GET /api/organization/score` - Get organization score
-- `GET /api/organization/score-history` - Get organization score history
+### Testing
 
-## Development
+#### Testing Account :
 
-### Running in Development Mode
+##### Admin account credential:
 
-1. Start MongoDB
-2. Start backend: `cd backend && npm run dev`
-3. Start frontend: `cd frontend && npm run dev`
+ashmar@thinkbridge.in
+sudo12345
 
-### Building for Production
-
-**Backend:**
+**Backend Testing**
 ```bash
 cd backend
-npm run build
-npm start
+npm test
 ```
 
-**Frontend:**
+**Frontend Testing**
 ```bash
 cd frontend
-npm run build
-npm run preview
+npm test
 ```
 
-## Security Notes
+## 🔒 Security Features
 
-- Change `JWT_SECRET` and `SECRET_SALT` in production
-- Use environment variables for all secrets
-- Enable HTTPS in production
-- Configure CORS properly for production domain
-- Use strong passwords in production
-- Regularly update dependencies
+- **JWT Authentication**: Secure token-based authentication
+- **API Key Authentication**: For agent communication
+- **Rate Limiting**: Protection against abuse
+- **CORS Configuration**: Production-ready CORS setup
+- **Password Hashing**: bcrypt with salt
+- **Environment Variables**: Secure secrets management
+- **Input Validation**: Request validation and sanitization
 
-## License
+## 📊 Monitoring & Observability
 
-MIT
+- **Health Checks**: `/health` endpoint with detailed status
+- **System Logs**: Comprehensive logging system
+- **Keep-Alive System**: Prevents service hibernation
+- **Statistics Tracking**: AI Gateway and system metrics
+- **Error Logging**: Detailed error tracking and reporting
 
+
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🆘 Support
+
+For support and questions:
+- Create an issue in the GitHub repository
+- Check the documentation in the `/docs` folder
+- Review the troubleshooting guides in the admin portal
+
+---
+
+**Secure Habit** - Making security accessible, actionable, and automated. 🛡️
