@@ -510,14 +510,37 @@ function Submit-InventoryData {
             try {
                 Write-Log "Attempt $attempt of $maxRetries..."
                 
-                $response = Invoke-RestMethod -Uri $API_ENDPOINT -Method POST -Body $jsonData -Headers $headers -TimeoutSec 120 -ErrorAction Stop
+                # Use Invoke-WebRequest for better error handling
+                $webResponse = Invoke-WebRequest -Uri $API_ENDPOINT -Method POST -Body $jsonData -Headers $headers -TimeoutSec 120 -UseBasicParsing
+                
+                # Parse response
+                $response = $webResponse.Content | ConvertFrom-Json
+                
+                Write-Log "HTTP Status: $($webResponse.StatusCode)"
+                Write-Log "Response: $($response | ConvertTo-Json -Compress)"
                 
                 # If we get here, the request succeeded
                 break
             }
             catch {
-                $errorMessage = $_.Exception.Message
-                Write-Log "Attempt $attempt failed: $errorMessage"
+                $statusCode = $_.Exception.Response.StatusCode.value__
+                $errorBody = ""
+                
+                try {
+                    if ($_.Exception.Response) {
+                        $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+                        $errorBody = $reader.ReadToEnd()
+                        $reader.Close()
+                    }
+                }
+                catch {
+                    $errorBody = "Could not read error response"
+                }
+                
+                Write-Log "Attempt $attempt failed"
+                Write-Log "Status Code: $statusCode"
+                Write-Log "Error: $($_.Exception.Message)"
+                Write-Log "Error Body: $errorBody"
                 
                 if ($attempt -eq $maxRetries) {
                     # Last attempt failed, re-throw the error
@@ -616,6 +639,7 @@ function Register-Agent {
         
         if ($response.success) {
             Write-Log "✅ Agent registered successfully"
+            Write-Log "Agent ID: $($response.agentId)"
         } else {
             Write-Log "⚠️ Agent registration failed: $($response.message)"
         }

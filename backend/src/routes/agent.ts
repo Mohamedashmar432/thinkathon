@@ -15,6 +15,152 @@ const router = express.Router();
 // Store active WebSocket connections
 const activeConnections = new Map<string, WebSocket>();
 
+// Agent Registration Endpoint
+// POST /api/agent/register
+router.post('/register', authenticateApiKey, async (req: AuthRequest, res: Response) => {
+  try {
+    const { deviceId, deviceName, version, systemInfo, status, timestamp } = req.body;
+    
+    console.log('Agent registration request:', {
+      userEmail: req.user.email,
+      deviceId,
+      deviceName,
+      version,
+      systemInfo: systemInfo ? 'Present' : 'Missing'
+    });
+
+    // Validate required fields
+    if (!deviceId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Device ID is required'
+      });
+    }
+
+    // Create or update agent record
+    const agent = await Agent.findOneAndUpdate(
+      { 
+        userId: req.user._id,
+        deviceId: deviceId
+      },
+      {
+        userId: req.user._id,
+        deviceId: deviceId,
+        deviceName: deviceName || 'Unknown Device',
+        status: status || 'active',
+        version: version || '2.0.0',
+        systemInfo: systemInfo || {},
+        lastHeartbeat: new Date(),
+        lastConnected: new Date(),
+        installedAt: new Date()
+      },
+      { 
+        upsert: true, 
+        new: true,
+        setDefaultsOnInsert: true
+      }
+    );
+
+    console.log('✅ Agent registered successfully:', {
+      agentId: agent._id,
+      deviceId: agent.deviceId,
+      status: agent.status
+    });
+
+    res.json({
+      success: true,
+      message: 'Agent registered successfully',
+      agentId: agent._id,
+      deviceId: agent.deviceId,
+      status: agent.status
+    });
+
+  } catch (error: any) {
+    console.error('❌ Agent registration error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to register agent',
+      error: error.message
+    });
+  }
+});
+
+// Agent Heartbeat Endpoint
+// POST /api/agent/:deviceId/heartbeat
+router.post('/:deviceId/heartbeat', authenticateApiKey, async (req: AuthRequest, res: Response) => {
+  try {
+    const { deviceId } = req.params;
+    const { status, version, systemInfo } = req.body;
+
+    console.log('Heartbeat received:', {
+      userEmail: req.user.email,
+      deviceId,
+      status,
+      version
+    });
+
+    // Update agent's last heartbeat
+    const agent = await Agent.findOneAndUpdate(
+      {
+        userId: req.user._id,
+        deviceId: deviceId
+      },
+      {
+        lastHeartbeat: new Date(),
+        status: status || 'active',
+        version: version,
+        systemInfo: systemInfo
+      },
+      { new: true }
+    );
+
+    if (!agent) {
+      return res.status(404).json({
+        success: false,
+        message: 'Agent not found'
+      });
+    }
+
+    console.log('✅ Heartbeat processed successfully for agent:', agent._id);
+
+    res.json({
+      success: true,
+      message: 'Heartbeat received',
+      agentStatus: agent.status,
+      lastHeartbeat: agent.lastHeartbeat
+    });
+
+  } catch (error: any) {
+    console.error('❌ Heartbeat error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to process heartbeat',
+      error: error.message
+    });
+  }
+});
+
+// Get all agents for user
+router.get('/', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const agents = await Agent.find({ userId: req.userId })
+      .sort({ lastHeartbeat: -1 });
+
+    res.json({
+      success: true,
+      agents: agents
+    });
+
+  } catch (error: any) {
+    console.error('❌ Get agents error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch agents',
+      error: error.message
+    });
+  }
+});
+
 // WebSocket server setup
 export function setupWebSocketServer(server: any) {
   const wss = new WebSocket.Server({ 
