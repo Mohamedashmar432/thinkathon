@@ -56,6 +56,8 @@ app.use(cors({
   origin: [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
+    'https://securehabit.vercel.app',
+    'https://securehabit.vercel.app/',
     process.env.FRONTEND_URL || 'http://localhost:5173',
     // Add Vercel preview URLs
     /^https:\/\/.*\.vercel\.app$/
