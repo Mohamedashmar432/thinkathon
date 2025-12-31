@@ -341,13 +341,6 @@ thinkathon/
 
 ### Testing
 
-#### Testing Account :
-
-##### Admin account credential:
-
-ashmar@thinkbridge.in
-sudo12345
-
 **Backend Testing**
 ```bash
 cd backend
