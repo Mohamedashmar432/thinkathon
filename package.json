@@ -1,4 +1,7 @@
 {
+  "name": "thinkathon-secure-habit",
+  "version": "1.0.1",
+  "description": "Secure Habit - Security Monitoring Platform",
   "dependencies": {
     "axios": "^1.13.2"
   }
