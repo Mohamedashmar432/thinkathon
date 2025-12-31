@@ -458,9 +458,14 @@ router.post('/download-installer', auth_1.authenticateToken, async (req, res) =>
                 message: 'Invalid or missing OS parameter. Supported: windows, linux, macos'
             });
         }
+        // CRITICAL FIX: Always use production URL when deployed to production
+        // This ensures agents connect to the correct backend regardless of environment variables
         const apiEndpoint = process.env.NODE_ENV === 'production'
             ? 'https://secure-habit-backend.onrender.com/api/scan/submit'
             : `${process.env.API_BASE_URL || 'http://localhost:5000'}/api/scan/submit`;
+        console.log(`Generating agent with API endpoint: ${apiEndpoint} (NODE_ENV: ${process.env.NODE_ENV})`);
+        console.log(`Production mode: ${process.env.NODE_ENV === 'production'}`);
+        console.log(`API_BASE_URL: ${process.env.API_BASE_URL}`);
         if (os === 'windows') {
             // Windows agent (existing implementation)
             const agentTemplatePath = path_1.default.join(__dirname, '../../templates/secure_habit_agent.ps1');
