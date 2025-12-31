@@ -692,12 +692,17 @@ router.post('/download-installer', authenticateToken, async (req: AuthRequest, r
 
     // CRITICAL FIX: Always use production URL when deployed to production
     // This ensures agents connect to the correct backend regardless of environment variables
-    const apiEndpoint = process.env.NODE_ENV === 'production' 
+    const isProduction = process.env.NODE_ENV === 'production' || 
+                        process.env.RENDER === 'true' || 
+                        !process.env.API_BASE_URL ||
+                        process.env.API_BASE_URL.includes('onrender.com');
+    
+    const apiEndpoint = isProduction
       ? 'https://secure-habit-backend.onrender.com/api/scan/submit'
       : `${process.env.API_BASE_URL || 'http://localhost:5000'}/api/scan/submit`;
     
-    console.log(`Generating agent with API endpoint: ${apiEndpoint} (NODE_ENV: ${process.env.NODE_ENV})`);
-    console.log(`Production mode: ${process.env.NODE_ENV === 'production'}`);
+    console.log(`Generating agent with API endpoint: ${apiEndpoint}`);
+    console.log(`Environment check: NODE_ENV=${process.env.NODE_ENV}, RENDER=${process.env.RENDER}, isProduction=${isProduction}`);
     console.log(`API_BASE_URL: ${process.env.API_BASE_URL}`);
 
     if (os === 'windows') {

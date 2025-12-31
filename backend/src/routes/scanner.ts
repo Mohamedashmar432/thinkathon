@@ -30,7 +30,12 @@ router.post('/generate', authenticateToken, async (req: AuthRequest, res: Respon
     let template = fs.readFileSync(templatePath, 'utf-8');
 
     // Replace placeholders
-    const apiEndpoint = process.env.NODE_ENV === 'production' 
+    const isProduction = process.env.NODE_ENV === 'production' || 
+                        process.env.RENDER === 'true' || 
+                        !process.env.API_BASE_URL ||
+                        process.env.API_BASE_URL.includes('onrender.com');
+    
+    const apiEndpoint = isProduction
       ? 'https://secure-habit-backend.onrender.com/api/scan/submit'
       : `${process.env.API_BASE_URL || 'http://localhost:5000'}/api/scan/submit`;
     
@@ -70,10 +75,15 @@ router.get('/credentials', authenticateToken, async (req: AuthRequest, res: Resp
       await user.save();
     }
 
+    const isProduction = process.env.NODE_ENV === 'production' || 
+                        process.env.RENDER === 'true' || 
+                        !process.env.API_BASE_URL ||
+                        process.env.API_BASE_URL.includes('onrender.com');
+
     res.json({
       success: true,
       apiKey: user.apiKey,
-      apiEndpoint: process.env.NODE_ENV === 'production' 
+      apiEndpoint: isProduction
         ? 'https://secure-habit-backend.onrender.com/api/scan/submit'
         : `${process.env.API_BASE_URL || 'http://localhost:5000'}/api/scan/submit`,
       userEmail: user.email,
